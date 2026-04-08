@@ -1,3 +1,5 @@
+<img src="pics/banner-cut.jpg" alt="pg-chaos-test banner" width="100%" />
+
 # pg-chaos-test
 
 Chaos-mode regression testing for upstream PostgreSQL.
