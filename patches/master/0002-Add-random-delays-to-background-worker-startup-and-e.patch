@@ -1,0 +1,61 @@
+From 5fc39aa5f4a6f5adf88675c152511b8e9ee32628 Mon Sep 17 00:00:00 2001
+From: "Andrei V. Lepikhov" <lepihov@gmail.com>
+Date: Wed, 8 Apr 2026 09:27:00 +0200
+Subject: [PATCH 2/2] Add random delays to background worker startup and exit
+
+Introduce 1-250 ms random delays in BackgroundWorkerMain() at three
+points: before invoking the worker entry function, before normal exit
+(proc_exit(0)), and before error exit (proc_exit(1)). Uses pg_prng
+and is guarded by #ifndef NO_CHAOS to match the existing chaos mode
+convention.
+
+This helps expose race conditions in bgworker lifecycle during
+regression testing.
+---
+ src/backend/postmaster/bgworker.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/src/backend/postmaster/bgworker.c b/src/backend/postmaster/bgworker.c
+index 3914d22a514..cf4a434f731 100644
+--- a/src/backend/postmaster/bgworker.c
++++ b/src/backend/postmaster/bgworker.c
+@@ -38,6 +38,7 @@
+ #include "utils/ps_status.h"
+ #include "utils/timeout.h"
+ #include "utils/wait_event.h"
++#include "common/pg_prng.h"
+ 
+ /*
+  * The postmaster's list of registered background workers, in private memory.
+@@ -829,6 +830,10 @@ BackgroundWorkerMain(const void *startup_data, size_t startup_data_len)
+ 		 */
+ 
+ 		/* and go away */
++#ifndef NO_CHAOS
++		/* Random delay (1-250 ms) before bgworker error exit. */
++		pg_usleep((pg_prng_uint32(&pg_global_prng_state) % 250 + 1) * 1000);
++#endif
+ 		proc_exit(1);
+ 	}
+ 
+@@ -862,9 +867,17 @@ BackgroundWorkerMain(const void *startup_data, size_t startup_data_len)
+ 	/*
+ 	 * Now invoke the user-defined worker code
+ 	 */
++#ifndef NO_CHAOS
++	/* Random delay (1-250 ms) before bgworker starts. */
++	pg_usleep((pg_prng_uint32(&pg_global_prng_state) % 250 + 1) * 1000);
++#endif
+ 	entrypt(worker->bgw_main_arg);
+ 
+ 	/* ... and if it returns, we're done */
++#ifndef NO_CHAOS
++	/* Random delay (1-250 ms) before bgworker exits. */
++	pg_usleep((pg_prng_uint32(&pg_global_prng_state) % 250 + 1) * 1000);
++#endif
+ 	proc_exit(0);
+ }
+ 
+-- 
+2.34.1
+

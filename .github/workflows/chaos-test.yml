@@ -1,0 +1,211 @@
+name: PostgreSQL Chaos Regression Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      pg_ref:
+        description: 'PostgreSQL git ref to test (branch, tag, or SHA)'
+        required: false
+        default: 'master'
+  schedule:
+    # Every Sunday at 03:00 UTC
+    - cron: '0 3 * * 0'
+
+env:
+  PG_REF: ${{ github.event.inputs.pg_ref || 'master' }}
+
+jobs:
+  chaos-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout chaos-test repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libreadline-dev zlib1g-dev flex bison \
+            libxml2-dev libxslt1-dev libssl-dev libkrb5-dev \
+            libldap2-dev libpam0g-dev libselinux1-dev \
+            liblz4-dev libzstd-dev pkg-config libicu-dev \
+            perl libperl-dev python3 tcl-dev \
+            gettext
+          # Enable core dumps
+          ulimit -c unlimited
+          sudo sysctl -w kernel.core_pattern=core.%p
+
+      - name: Clone upstream PostgreSQL
+        run: |
+          git clone --depth=1 --branch "$PG_REF" \
+            https://github.com/postgres/postgres.git pg-src
+
+      - name: Apply chaos patches
+        working-directory: pg-src
+        run: |
+          PATCH_DIR="../patches/master"
+          if [ ! -d "$PATCH_DIR" ] || [ -z "$(ls -A "$PATCH_DIR"/*.patch 2>/dev/null)" ]; then
+            echo "::error::No patches found in $PATCH_DIR"
+            exit 1
+          fi
+          for patch in "$PATCH_DIR"/*.patch; do
+            echo "--- Applying: $(basename $patch) ---"
+            git apply --stat "$patch"
+            git apply "$patch"
+          done
+          echo "All chaos patches applied successfully."
+
+      - name: Configure
+        working-directory: pg-src
+        run: |
+          ./configure \
+            --enable-cassert \
+            --enable-debug \
+            --enable-tap-tests \
+            --with-icu \
+            --with-openssl \
+            --with-libxml \
+            --with-libxslt \
+            --prefix=$HOME/pg-install
+
+      - name: Build
+        working-directory: pg-src
+        run: make -j$(nproc)
+
+      - name: Install
+        working-directory: pg-src
+        run: make install
+
+      - name: Run check-world (keep going on failure)
+        working-directory: pg-src
+        # -k = keep going after failures; don't fail the step yet.
+        continue-on-error: true
+        run: |
+          ulimit -c unlimited
+          make check-world -k -j$(nproc) 2>&1 | tee check-world.log
+
+      # ---- Success factor 1: no +ERROR in diffs ----
+      - name: "Check 1: Scan diffs for +ERROR"
+        id: check_errors
+        working-directory: pg-src
+        run: |
+          chmod +x ../check_diffs_errors.sh
+          ../check_diffs_errors.sh . | tee /tmp/errors_report.txt
+
+          if grep -q '=== ' /tmp/errors_report.txt; then
+            echo "errors_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "errors_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ---- Success factor 2: no core files, assertions, or segfaults ----
+      - name: "Check 2: Scan for crashes, assertions, segfaults"
+        id: check_crashes
+        working-directory: pg-src
+        run: |
+          chmod +x ../check_crashes.sh
+          ../check_crashes.sh . | tee /tmp/crashes_report.txt
+
+          if grep -q 'RESULT: Crash evidence detected' /tmp/crashes_report.txt; then
+            echo "crashes_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "crashes_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ---- Collect artifacts (always, even on success) ----
+      - name: Collect regression artifacts
+        if: always()
+        working-directory: pg-src
+        run: |
+          mkdir -p /tmp/chaos-artifacts/diffs
+          mkdir -p /tmp/chaos-artifacts/logs
+
+          # Gather all .diffs files
+          find . -name '*.diffs' -exec cp --parents {} /tmp/chaos-artifacts/diffs/ \; 2>/dev/null || true
+
+          # Gather postmaster and TAP test logs with crash evidence
+          find . -name 'postmaster.log' -exec cp --parents {} /tmp/chaos-artifacts/logs/ \; 2>/dev/null || true
+          find . -path '*/tmp_check/*/log/*.log' -exec cp --parents {} /tmp/chaos-artifacts/logs/ \; 2>/dev/null || true
+
+          # Gather core dumps if any
+          find . -name 'core' -o -name 'core.*' 2>/dev/null | while read core; do
+            cp --parents "$core" /tmp/chaos-artifacts/ 2>/dev/null || true
+          done
+
+          # Copy reports
+          cp -f check-world.log /tmp/chaos-artifacts/ 2>/dev/null || true
+          cp -f /tmp/errors_report.txt /tmp/chaos-artifacts/ 2>/dev/null || true
+          cp -f /tmp/crashes_report.txt /tmp/chaos-artifacts/ 2>/dev/null || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-test-results-${{ github.run_number }}
+          path: /tmp/chaos-artifacts/
+          retention-days: 30
+
+      # ---- Write job summary ----
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Chaos Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PostgreSQL ref:** \`$PG_REF\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Check 1: Regression diff errors (+ERROR)" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check_errors.outputs.errors_found }}" = "true" ]; then
+            echo ":x: **FAILED** — +ERROR lines found in regression diffs" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":white_check_mark: **PASSED** — no +ERROR in diffs" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Check 2: Crashes / assertions / segfaults" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check_crashes.outputs.crashes_found }}" = "true" ]; then
+            echo ":x: **FAILED** — crash evidence detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":white_check_mark: **PASSED** — no crashes detected" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "<details><summary>Error report</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          head -200 /tmp/errors_report.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(empty)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "<details><summary>Crash report</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          head -200 /tmp/crashes_report.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(empty)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+      # ---- Final verdict ----
+      - name: Final verdict
+        run: |
+          ERRORS="${{ steps.check_errors.outputs.errors_found }}"
+          CRASHES="${{ steps.check_crashes.outputs.crashes_found }}"
+
+          if [ "$ERRORS" = "true" ] && [ "$CRASHES" = "true" ]; then
+            echo "::error::FAILED: Both +ERROR in diffs AND crash evidence detected"
+            exit 1
+          elif [ "$ERRORS" = "true" ]; then
+            echo "::error::FAILED: +ERROR lines found in regression diffs"
+            exit 1
+          elif [ "$CRASHES" = "true" ]; then
+            echo "::error::FAILED: Crash evidence (core files, assertions, or segfaults) detected"
+            exit 1
+          else
+            echo "SUCCESS: All chaos regression tests passed — no errors, no crashes."
+          fi
