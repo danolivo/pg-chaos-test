@@ -23,6 +23,7 @@ Located in `patches/<branch>/`, applied in lexicographic order:
 |-------|-------------|
 | `0001-...optimizer...` | Randomizes path selection in `add_path`, `add_path_precheck`, `add_partial_path`, and `add_partial_path_precheck` via `pg_prng`. Cost comparisons, pathkeys comparisons, and list insertion order are all randomized. |
 | `0002-...bgworker...` | Adds random 1–250 ms delays at background worker startup, normal exit, and error exit in `BackgroundWorkerMain()`. |
+| `0003-...widen-pathkeys...` | Widens pathkeys randomization in `add_path` to trigger when *either* side has pathkeys (not just the old path). Replaces both precheck functions with unconditional `return true` to force every candidate through the full comparison gauntlet. |
 
 All chaos code is guarded by `#ifndef NO_CHAOS` — define `NO_CHAOS` to
 restore original behavior.
@@ -40,12 +41,16 @@ The GitHub Actions workflow (`.github/workflows/chaos-test.yml`) triggers on:
 
 1. Clone upstream `postgres/postgres` at the target ref (default: `master`)
 2. Apply all patches from `patches/master/`
-3. Configure with `--enable-cassert --enable-debug --enable-tap-tests`
-4. Build and run `make check-world -k` (continue past failures)
-5. Run `check_diffs_errors.sh` — scan `*.diffs` for `+ERROR`
-6. Run `check_crashes.sh` — scan for core files, `TRAP:`, segfault signals
-7. Upload all diffs, logs, and core dumps as artifacts (retained 30 days)
-8. **Fail** the run if either check finds issues
+3. Configure with `--enable-tap-tests --enable-injection-points` and all optional libraries
+4. Build with `-O3 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION`
+5. Run `make check-world -k` with `PG_TEST_EXTRA` enabling all available test suites (continue past failures)
+6. Run `check_diffs_errors.sh` — scan `*.diffs` for `+ERROR`
+7. Run `check_crashes.sh` — scan for core files, `TRAP:`, segfault signals
+8. Upload all diffs, logs, and core dumps as artifacts (retained 30 days)
+9. **Fail** the run if either check finds issues
+
+Steps 6–8 run even if the test suite is cancelled (e.g., by the 6-hour timeout),
+so partial results are always collected.
 
 ## Scripts
 
