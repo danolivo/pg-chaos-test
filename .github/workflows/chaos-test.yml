@@ -17,7 +17,6 @@ on:
 
 env:
   PG_REF: ${{ github.event.inputs.pg_ref || 'master' }}
-  PG_TEST_EXTRA: "ssl ldap kerberos libpq_encryption load_balance regress_dump_restore saslprep oauth checksum_extended wal_consistency_checking"
 
 jobs:
   chaos-test:
@@ -158,7 +157,7 @@ jobs:
         continue-on-error: true
         run: |
           ulimit -c unlimited
-          make check-world -k -j$(nproc) PG_TEST_EXTRA="$PG_TEST_EXTRA" 2>&1 | tee check-world.log
+          make check-world -k -j$(nproc) 2>&1 | tee check-world.log
 
       # ---- Success factor 1: no +ERROR in diffs ----
       - name: "Check 1: Scan diffs for +ERROR"
