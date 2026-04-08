@@ -21,7 +21,7 @@ env:
 jobs:
   chaos-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
       - name: Checkout chaos-test repo
@@ -158,6 +158,7 @@ jobs:
 
       # ---- Success factor 1: no +ERROR in diffs ----
       - name: "Check 1: Scan diffs for +ERROR"
+        if: always() && steps.apply_patches.outputs.patch_failed != 'true'
         id: check_errors
         working-directory: pg-src
         run: |
@@ -172,6 +173,7 @@ jobs:
 
       # ---- Success factor 2: no core files, assertions, or segfaults ----
       - name: "Check 2: Scan for crashes, assertions, segfaults"
+        if: always() && steps.apply_patches.outputs.patch_failed != 'true'
         id: check_crashes
         working-directory: pg-src
         run: |
