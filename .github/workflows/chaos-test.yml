@@ -123,6 +123,7 @@ jobs:
         run: |
           ./configure \
             --enable-tap-tests \
+            --enable-injection-points \
             --with-icu \
             --with-openssl \
             --with-libxml \
