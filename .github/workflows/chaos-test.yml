@@ -46,7 +46,9 @@ jobs:
           git clone --depth=1 --branch "$PG_REF" \
             https://github.com/postgres/postgres.git pg-src
 
+      # ---- Apply patches: fail immediately if they don't apply ----
       - name: Apply chaos patches
+        id: apply_patches
         working-directory: pg-src
         run: |
           PATCH_DIR="../patches/master"
@@ -55,11 +57,49 @@ jobs:
             exit 1
           fi
           for patch in "$PATCH_DIR"/*.patch; do
-            echo "--- Applying: $(basename $patch) ---"
+            BASENAME=$(basename "$patch")
+            echo "--- Checking: $BASENAME ---"
+            if ! git apply --check "$patch" 2>/tmp/patch_error_${BASENAME}.txt; then
+              echo "::error::Patch $BASENAME does not apply cleanly"
+              cat /tmp/patch_error_${BASENAME}.txt
+              echo "patch_failed=true" >> $GITHUB_OUTPUT
+              echo "failed_patch=$BASENAME" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            echo "--- Applying: $BASENAME ---"
             git apply --stat "$patch"
             git apply "$patch"
           done
+          echo "patch_failed=false" >> $GITHUB_OUTPUT
           echo "All chaos patches applied successfully."
+
+      - name: Send patch failure email
+        if: failure() && steps.apply_patches.outputs.patch_failed == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "pg-chaos-test: patch no longer applies to ${{ env.PG_REF }}"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GitHub Actions <github-actions@github.com>
+          body: |
+            The chaos patch set no longer applies cleanly to PostgreSQL ${{ env.PG_REF }}.
+
+            Failed patch: ${{ steps.apply_patches.outputs.failed_patch }}
+
+            This likely means upstream changed code in add_path / add_partial_path
+            (pathnode.c) or BackgroundWorkerMain (bgworker.c). The patches need
+            to be regenerated.
+
+            Workflow: ${{ github.workflow }}
+            Repository: ${{ github.repository }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ---
+            Automated message from GitHub Actions.
 
       - name: Configure
         working-directory: pg-src
@@ -209,3 +249,31 @@ jobs:
           else
             echo "SUCCESS: All chaos regression tests passed — no errors, no crashes."
           fi
+
+      - name: Send test failure email
+        if: failure() && steps.apply_patches.outputs.patch_failed != 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "pg-chaos-test: regression failures on ${{ env.PG_REF }}"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GitHub Actions <github-actions@github.com>
+          body: |
+            The chaos regression test run against PostgreSQL ${{ env.PG_REF }} has FAILED.
+
+            Results:
+            - +ERROR in diffs: ${{ steps.check_errors.outputs.errors_found }}
+            - Crashes detected: ${{ steps.check_crashes.outputs.crashes_found }}
+
+            Workflow: ${{ github.workflow }}
+            Repository: ${{ github.repository }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Artifacts (diffs, logs, core dumps) are available for 30 days at the run URL.
+
+            ---
+            Automated message from GitHub Actions.
