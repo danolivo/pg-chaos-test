@@ -17,6 +17,7 @@ on:
 
 env:
   PG_REF: ${{ github.event.inputs.pg_ref || 'master' }}
+  PG_TEST_EXTRA: "ssl ldap kerberos libpq_encryption load_balance regress_dump_restore saslprep oauth checksum_extended wal_consistency_checking"
 
 jobs:
   chaos-test:
@@ -50,6 +51,8 @@ jobs:
             xsltproc docbook-xsl docbook-xml \
             uuid-dev \
             libpq-dev \
+            slapd ldap-utils \
+            krb5-kdc krb5-admin-server krb5-user \
             gdb
           # Enable core dumps
           ulimit -c unlimited
