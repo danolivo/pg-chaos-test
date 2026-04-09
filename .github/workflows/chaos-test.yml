@@ -123,6 +123,8 @@ jobs:
         run: |
           ./configure \
             --enable-tap-tests \
+            --enable-cassert \
+            --enable-debug \
             --enable-injection-points \
             --with-icu \
             --with-openssl \
@@ -146,7 +148,7 @@ jobs:
         working-directory: pg-src
         run: |
           make -j$(nproc) \
-            CFLAGS="-O3 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION -DHAVE_BACKTRACE_SYMBOLS"
+            CFLAGS="-O0 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION -DHAVE_BACKTRACE_SYMBOLS"
 
       - name: Install
         working-directory: pg-src
@@ -159,7 +161,7 @@ jobs:
         run: |
           ulimit -c unlimited
           export PG_TEST_EXTRA="ssl ldap kerberos"
-          make check-world -k -j$(nproc) 2>&1 | tee check-world.log
+          make check-world -k -j$(nproc) PG_TEST_INITDB_EXTRA_OPTS='-c debug_copy_parse_plan_trees=on -c debug_write_read_parse_plan_trees=on -c debug_raw_expression_coverage_test=on' 2>&1 | tee check-world.log
 
       # ---- Success factor 1: no +ERROR in diffs ----
       - name: "Check 1: Scan diffs for +ERROR"
