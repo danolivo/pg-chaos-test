@@ -17,6 +17,7 @@ on:
 
 env:
   PG_REF: ${{ github.event.inputs.pg_ref || 'master' }}
+  NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
 
 jobs:
   chaos-test:
@@ -90,7 +91,7 @@ jobs:
           echo "All chaos patches applied successfully."
 
       - name: Send patch failure email
-        if: failure() && steps.apply_patches.outputs.patch_failed == 'true'
+        if: failure() && steps.apply_patches.outputs.patch_failed == 'true' && env.NOTIFY_EMAIL != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -282,7 +283,7 @@ jobs:
           fi
 
       - name: Send test failure email
-        if: failure() && steps.apply_patches.outputs.patch_failed != 'true'
+        if: failure() && steps.apply_patches.outputs.patch_failed != 'true' && env.NOTIFY_EMAIL != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com

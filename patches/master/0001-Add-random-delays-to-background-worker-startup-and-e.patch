@@ -1,7 +1,7 @@
-From 5fc39aa5f4a6f5adf88675c152511b8e9ee32628 Mon Sep 17 00:00:00 2001
+From ac823c041c2fa6ae21c0709ee9c72b46bb1342eb Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
 Date: Wed, 8 Apr 2026 09:27:00 +0200
-Subject: [PATCH 2/3] Add random delays to background worker startup and exit
+Subject: [PATCH 1/2] Add random delays to background worker startup and exit
 
 Introduce 1-250 ms random delays in BackgroundWorkerMain() at three
 points: before invoking the worker entry function, before normal exit
@@ -57,5 +57,5 @@ index 3914d22a514..cf4a434f731 100644
  }
  
 -- 
-2.34.1
+2.53.0
 

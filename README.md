@@ -21,9 +21,8 @@ Located in `patches/<branch>/`, applied in lexicographic order:
 
 | Patch | Description |
 |-------|-------------|
-| `0001-...optimizer...` | Randomizes path selection in `add_path`, `add_path_precheck`, `add_partial_path`, and `add_partial_path_precheck` via `pg_prng`. Cost comparisons, pathkeys comparisons, and list insertion order are all randomized. |
-| `0002-...bgworker...` | Adds random 1–250 ms delays at background worker startup, normal exit, and error exit in `BackgroundWorkerMain()`. |
-| `0003-...widen-pathkeys...` | Widens pathkeys randomization in `add_path` to trigger when *either* side has pathkeys (not just the old path). Replaces both precheck functions with unconditional `return true` to force every candidate through the full comparison gauntlet. |
+| `0001-...bgworker...` | Adds random 1–250 ms delays at background worker startup, normal exit, and error exit in `BackgroundWorkerMain()`. |
+| `0002-...optimizer...` | Randomizes comparison inputs (`costcmp`, `keyscmp`, `outercmp`, rows) in `add_path` and `add_partial_path` via `pg_prng` while keeping the original dominance logic and `pfree` behavior intact. Replaces both precheck functions with unconditional `return true`. Interface-level fault injection: feed random values into the real decision machinery rather than randomizing each decision point. |
 
 All chaos code is guarded by `#ifndef NO_CHAOS` — define `NO_CHAOS` to
 restore original behavior.
