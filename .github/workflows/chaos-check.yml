@@ -1,4 +1,4 @@
-name: "Chaos: make check-world (long)"
+name: "Chaos: make check (short)"
 
 on:
   push:
@@ -20,9 +20,9 @@ env:
   NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
 
 jobs:
-  chaos-test:
+  chaos-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 60
 
     steps:
       - name: Checkout chaos-test repo
@@ -99,7 +99,7 @@ jobs:
           secure: true
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "pg-chaos-test (check-world): patch no longer applies to ${{ env.PG_REF }}"
+          subject: "pg-chaos-test (check): patch no longer applies to ${{ env.PG_REF }}"
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: GitHub Actions <github-actions@github.com>
           body: |
@@ -152,14 +152,12 @@ jobs:
         working-directory: pg-src
         run: make install
 
-      - name: "Run make check-world (keep going on failure)"
+      - name: Run make check (keep going on failure)
         working-directory: pg-src
-        # -k = keep going after failures; don't fail the step yet.
         continue-on-error: true
         run: |
           ulimit -c unlimited
-          export PG_TEST_EXTRA="ssl ldap kerberos"
-          make check-world -k -j$(nproc) 2>&1 | tee check-world.log
+          make check -j$(nproc) 2>&1 | tee check.log
 
       # ---- Success factor 1: no +ERROR in diffs ----
       - name: "Check 1: Scan diffs for +ERROR"
@@ -212,7 +210,7 @@ jobs:
           done
 
           # Copy reports
-          cp -f check-world.log /tmp/chaos-artifacts/ 2>/dev/null || true
+          cp -f check.log /tmp/chaos-artifacts/ 2>/dev/null || true
           cp -f /tmp/errors_report.txt /tmp/chaos-artifacts/ 2>/dev/null || true
           cp -f /tmp/crashes_report.txt /tmp/chaos-artifacts/ 2>/dev/null || true
 
@@ -220,7 +218,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chaos-check-world-results-${{ github.run_number }}
+          name: chaos-check-results-${{ github.run_number }}
           path: /tmp/chaos-artifacts/
           retention-days: 30
 
@@ -228,7 +226,7 @@ jobs:
       - name: Write job summary
         if: always()
         run: |
-          echo "## Chaos Test Results (make check-world)" >> $GITHUB_STEP_SUMMARY
+          echo "## Chaos Test Results (make check)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**PostgreSQL ref:** \`$PG_REF\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -292,11 +290,11 @@ jobs:
           secure: true
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "pg-chaos-test (check-world): regression failures on ${{ env.PG_REF }}"
+          subject: "pg-chaos-test (check): regression failures on ${{ env.PG_REF }}"
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: GitHub Actions <github-actions@github.com>
           body: |
-            The chaos regression test run (make check-world) against PostgreSQL ${{ env.PG_REF }} has FAILED.
+            The chaos regression test run (make check) against PostgreSQL ${{ env.PG_REF }} has FAILED.
 
             Results:
             - +ERROR in diffs: ${{ steps.check_errors.outputs.errors_found }}

@@ -21,34 +21,36 @@ Located in `patches/<branch>/`, applied in lexicographic order:
 
 | Patch | Description |
 |-------|-------------|
-| `0001-...bgworker...` | Adds random 1–250 ms delays at background worker startup, normal exit, and error exit in `BackgroundWorkerMain()`. |
-| `0002-...optimizer...` | Randomizes comparison inputs (`costcmp`, `keyscmp`, `outercmp`, rows) in `add_path` and `add_partial_path` via `pg_prng` while keeping the original dominance logic and `pfree` behavior intact. Replaces both precheck functions with unconditional `return true`. Interface-level fault injection: feed random values into the real decision machinery rather than randomizing each decision point. |
+| `0001-...bgworker...` | Adds random 1–50 ms delays at background worker startup and normal exit in `BackgroundWorkerMain()`. Also defines `CHAOS_MODE` in `pg_prng.h` to enable all chaos code globally. |
+| `0002-...optimizer...` | Randomizes the three core cost comparison functions (`compare_path_costs`, `compare_fractional_path_costs`, `compare_path_costs_fuzzily`) after the `disabled_nodes` check. Provides alternative `add_path` and `add_partial_path` implementations that randomize multi-dimensional dominance inputs (`costcmp`, `keyscmp`, `outercmp`, rows) while preserving the original decision structure and `pfree` behaviour. Randomizes two additional direct cost comparisons: the partial-vs-parallel-safe path choice in `add_paths_to_append_rel` (`allpaths.c`) and the seqscan+sort-vs-indexscan decision in `plan_cluster_use_sort` (`planner.c`). |
 
-All chaos code is guarded by `#ifndef NO_CHAOS` — define `NO_CHAOS` to
-restore original behavior.
+All chaos code is guarded by `#ifdef CHAOS_MODE`, which is defined in
+`pg_prng.h` by patch 0001. Remove or undefine `CHAOS_MODE` to restore
+original behavior.
 
-## CI workflow
+## CI workflows
 
-The GitHub Actions workflow (`.github/workflows/chaos-test.yml`) triggers on:
+There are two GitHub Actions workflows, both triggered on push, PR,
+manual dispatch, and weekly schedule (Sunday 03:00 UTC):
 
-- **Every push** to `main`/`master`
-- **Pull requests** against `main`/`master`
-- **Manual dispatch** (with optional PostgreSQL ref override)
-- **Weekly schedule** (Sunday 03:00 UTC)
+| Workflow | File | Test target | Timeout |
+|----------|------|-------------|---------|
+| **Short** | `chaos-check.yml` | `make check` | 60 min |
+| **Long**  | `chaos-test.yml`  | `make check-world -k` | 360 min |
 
-### Workflow steps
+### Common steps
 
 1. Clone upstream `postgres/postgres` at the target ref (default: `master`)
 2. Apply all patches from `patches/master/`
 3. Configure with `--enable-tap-tests --enable-injection-points` and all optional libraries
 4. Build with `-O3 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION`
-5. Run `make check-world -k` with `PG_TEST_EXTRA` enabling all available test suites (continue past failures)
+5. Run the test target (`make check` or `make check-world -k`)
 6. Run `check_diffs_errors.sh` — scan `*.diffs` for `+ERROR`
 7. Run `check_crashes.sh` — scan for core files, `TRAP:`, segfault signals
 8. Upload all diffs, logs, and core dumps as artifacts (retained 30 days)
 9. **Fail** the run if either check finds issues
 
-Steps 6–8 run even if the test suite is cancelled (e.g., by the 6-hour timeout),
+Steps 6–8 run even if the test suite is cancelled (e.g., by the timeout),
 so partial results are always collected.
 
 ## Scripts

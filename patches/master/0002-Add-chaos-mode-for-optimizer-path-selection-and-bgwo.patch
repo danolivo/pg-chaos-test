@@ -1,46 +1,157 @@
-From 09b04c66dfca9beada42659c144a848433e20001 Mon Sep 17 00:00:00 2001
+From a51f4854be8370d9728fbe77b4c9b61c28c167a5 Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
 Date: Wed, 8 Apr 2026 09:08:28 +0200
-Subject: [PATCH 2/2] Add chaos mode for optimizer path selection in regression
- tests
+Subject: [PATCH 2/2] Add chaos mode for optimizer path selection and bgworker
+ timing
 
-Introduce alternative implementations of add_path, add_partial_path and
-their precheck variants that randomize the comparison inputs (costs,
-pathkeys, parameterization, row counts) via pg_prng while keeping the
-original dominance logic and pfree behaviour intact.  This is an
-interface-level fault injection approach: feed random values into the
-real decision machinery rather than replacing each decision point.
+Introduce a compile-time CHAOS_MODE that randomizes planner path
+selection to expose plan-sensitive assumptions in regression tests.
 
-Guarded by #ifdef NO_CHAOS (original code) / #else (chaos code), so the
-randomized variant is active by default during regression runs.  The
-purpose is to shake out plan-sensitive assumptions in tests by forcing
-the planner to non-deterministically keep, reject, and reorder paths,
-maximizing coverage of latent planner bugs.
+The approach works at two levels.  First, the three core cost comparison
+functions (compare_path_costs, compare_fractional_path_costs,
+compare_path_costs_fuzzily) return random results via pg_prng after
+the disabled_nodes check, affecting all callers across the optimizer.
+Second, alternative implementations of add_path and add_partial_path
+randomize the multi-dimensional dominance inputs (costs, pathkeys,
+parameterization, row counts) while preserving the original decision
+structure and pfree behaviour; their precheck variants always return
+true so that every candidate reaches the main comparison loop.  Two
+additional direct cost comparisons are randomized: the partial-vs-
+parallel-safe path choice in add_paths_to_append_rel (allpaths.c) and
+the seqscan+sort-vs-indexscan decision in plan_cluster_use_sort
+(planner.c).
 ---
- src/backend/optimizer/util/pathnode.c | 340 +++++++++++++++++++++++++-
- 1 file changed, 339 insertions(+), 1 deletion(-)
+ src/backend/optimizer/path/allpaths.c |   8 +-
+ src/backend/optimizer/plan/planner.c  |   7 +
+ src/backend/optimizer/util/pathnode.c | 357 +++++++++++++++++++++++++-
+ 3 files changed, 370 insertions(+), 2 deletions(-)
 
+diff --git a/src/backend/optimizer/path/allpaths.c b/src/backend/optimizer/path/allpaths.c
+index 61093f222a1..80e4b974f78 100644
+--- a/src/backend/optimizer/path/allpaths.c
++++ b/src/backend/optimizer/path/allpaths.c
+@@ -23,6 +23,7 @@
+ #include "catalog/pg_class.h"
+ #include "catalog/pg_operator.h"
+ #include "catalog/pg_proc.h"
++#include "common/pg_prng.h"
+ #include "foreign/fdwapi.h"
+ #include "miscadmin.h"
+ #include "nodes/makefuncs.h"
+@@ -1519,7 +1520,12 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
+ 			}
+ 			else if (nppath == NULL ||
+ 					 (cheapest_partial_path != NULL &&
+-					  cheapest_partial_path->total_cost < nppath->total_cost))
++#ifdef CHAOS_MODE
++					  pg_prng_bool(&pg_global_prng_state)
++#else
++					  cheapest_partial_path->total_cost < nppath->total_cost
++#endif
++					  ))
+ 			{
+ 				/* Partial path is cheaper or the only option. */
+ 				Assert(cheapest_partial_path != NULL);
+diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
+index 4ec76ce31a9..4e5dd987b94 100644
+--- a/src/backend/optimizer/plan/planner.c
++++ b/src/backend/optimizer/plan/planner.c
+@@ -26,6 +26,7 @@
+ #include "catalog/pg_inherits.h"
+ #include "catalog/pg_proc.h"
+ #include "catalog/pg_type.h"
++#include "common/pg_prng.h"
+ #include "executor/executor.h"
+ #include "foreign/fdwapi.h"
+ #include "jit/jit.h"
+@@ -6928,7 +6929,9 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
+ 	Cost		comparisonCost;
+ 	Path	   *seqScanPath;
+ 	Path		seqScanAndSortPath;
++#ifndef CHAOS_MODE
+ 	IndexPath  *indexScanPath;
++#endif
+ 	ListCell   *lc;
+ 
+ 	/* We can short-circuit the cost comparison if indexscans are disabled */
+@@ -7011,6 +7014,9 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
+ 			  seqScanPath->total_cost, rel->tuples, rel->reltarget->width,
+ 			  comparisonCost, maintenance_work_mem, -1.0);
+ 
++#ifdef CHAOS_MODE
++	return pg_prng_bool(&pg_global_prng_state);
++#else
+ 	/* Estimate the cost of index scan */
+ 	indexScanPath = create_index_path(root, indexInfo,
+ 									  NIL, NIL, NIL, NIL,
+@@ -7018,6 +7024,7 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
+ 									  NULL, 1.0, false);
+ 
+ 	return (seqScanAndSortPath.total_cost < indexScanPath->path.total_cost);
++#endif
+ }
+ 
+ /*
 diff --git a/src/backend/optimizer/util/pathnode.c b/src/backend/optimizer/util/pathnode.c
-index 73518c8f870..21fa7c03293 100644
+index 73518c8f870..efd676565af 100644
 --- a/src/backend/optimizer/util/pathnode.c
 +++ b/src/backend/optimizer/util/pathnode.c
-@@ -28,6 +28,7 @@
- #include "optimizer/planmain.h"
- #include "optimizer/tlist.h"
- #include "parser/parsetree.h"
-+#include "common/pg_prng.h"
- #include "utils/memutils.h"
- #include "utils/selfuncs.h"
+@@ -15,6 +15,7 @@
+ #include "postgres.h"
  
-@@ -455,6 +456,7 @@ set_cheapest(RelOptInfo *parent_rel)
+ #include "access/htup_details.h"
++#include "common/pg_prng.h"
+ #include "executor/nodeSetOp.h"
+ #include "foreign/fdwapi.h"
+ #include "miscadmin.h"
+@@ -76,6 +77,13 @@ compare_path_costs(Path *path1, Path *path2, CostSelector criterion)
+ 			return +1;
+ 	}
+ 
++#ifdef CHAOS_MODE
++	if (pg_prng_bool(&pg_global_prng_state))
++		return -1;
++	else
++		return +1;
++#endif
++
+ 	if (criterion == STARTUP_COST)
+ 	{
+ 		if (path1->startup_cost < path2->startup_cost)
+@@ -135,6 +143,13 @@ compare_fractional_path_costs(Path *path1, Path *path2,
+ 			return +1;
+ 	}
+ 
++#ifdef CHAOS_MODE
++	if (pg_prng_bool(&pg_global_prng_state))
++		return -1;
++	else
++		return +1;
++#endif
++
+ 	if (fraction <= 0.0 || fraction >= 1.0)
+ 		return compare_path_costs(path1, path2, TOTAL_COST);
+ 	cost1 = path1->startup_cost +
+@@ -192,6 +207,10 @@ compare_path_costs_fuzzily(Path *path1, Path *path2, double fuzz_factor)
+ 			return COSTS_BETTER2;
+ 	}
+ 
++#ifdef CHAOS_MODE
++	return pg_prng_uint32(&pg_global_prng_state) % 4;
++#endif
++
+ 	/*
+ 	 * Check total cost first since it's more likely to be different; many
+ 	 * paths have zero startup cost.
+@@ -455,6 +474,7 @@ set_cheapest(RelOptInfo *parent_rel)
   *
   * Returns nothing, but modifies parent_rel->pathlist.
   */
-+#ifdef NO_CHAOS
++#ifndef CHAOS_MODE
  void
  add_path(RelOptInfo *parent_rel, Path *new_path)
  {
-@@ -664,6 +666,196 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
+@@ -664,6 +684,196 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
  			pfree(new_path);
  	}
  }
@@ -129,7 +240,7 @@ index 73518c8f870..21fa7c03293 100644
 +								else if (new_path->parallel_safe <
 +										 old_path->parallel_safe)
 +									accept_new = false; /* old dominates new */
-+								/* Chaos: randomise rows comparison. */
++								/* Chaos: randomise rows and final tiebreaker. */
 +								else if (pg_prng_bool(&pg_global_prng_state))
 +									remove_old = true;
 +								else if (pg_prng_bool(&pg_global_prng_state))
@@ -207,7 +318,7 @@ index 73518c8f870..21fa7c03293 100644
 +		{
 +			if (new_path->disabled_nodes > old_path->disabled_nodes ||
 +				(new_path->disabled_nodes == old_path->disabled_nodes &&
-+				 new_path->total_cost >= old_path->total_cost))
++				 pg_prng_bool(&pg_global_prng_state)))
 +				insert_at = foreach_current_index(p1) + 1;
 +		}
 +
@@ -237,20 +348,12 @@ index 73518c8f870..21fa7c03293 100644
  
  /*
   * add_path_precheck
-@@ -682,6 +874,7 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
-  * At the time this is called, we haven't actually built a Path structure,
-  * so the required information has to be passed piecemeal.
-  */
-+#ifdef NO_CHAOS
- bool
- add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
- 				  Cost startup_cost, Cost total_cost,
-@@ -749,7 +942,16 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -749,7 +959,16 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
  
  	return true;
  }
 -
-+#else
++#if 0
 +bool
 +add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
 +				  Cost startup_cost, Cost total_cost,
@@ -263,15 +366,15 @@ index 73518c8f870..21fa7c03293 100644
  /*
   * add_partial_path
   *	  Like add_path, our goal here is to consider whether a path is worthy
-@@ -789,6 +991,7 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -789,6 +1008,7 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
   *	  take an exception for IndexPaths as partial index paths won't be
   *	  referenced by partial BitmapHeapPaths.
   */
-+#ifdef NO_CHAOS
++#ifndef CHAOS_MODE
  void
  add_partial_path(RelOptInfo *parent_rel, Path *new_path)
  {
-@@ -898,6 +1101,131 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
+@@ -898,6 +1118,132 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
  		pfree(new_path);
  	}
  }
@@ -320,10 +423,9 @@ index 73518c8f870..21fa7c03293 100644
 +
 +			/*
 +			 * Chaos: randomize cost comparison.  compare_path_costs_fuzzily
-+			 * returns only COSTS_EQUAL, COSTS_BETTER1, COSTS_BETTER2 (never
-+			 * COSTS_DIFFERENT), so use % 3.
++			 * returns only COSTS_EQUAL, COSTS_BETTER1, COSTS_BETTER2.
 +			 */
-+			costcmp = pg_prng_uint32(&pg_global_prng_state) % 3;
++			costcmp = pg_prng_uint32(&pg_global_prng_state) % 4;
 +
 +			if (costcmp == COSTS_BETTER1)
 +			{
@@ -346,11 +448,13 @@ index 73518c8f870..21fa7c03293 100644
 +				 * compare_path_costs_fuzzily(..., 1.0000000001).
 +				 * Randomize with pg_prng_bool.
 +				 */
-+				else if (pg_prng_bool(&pg_global_prng_state))
++				else if (compare_path_costs_fuzzily(new_path, old_path,
++													1.0000000001) == COSTS_BETTER1)
 +					remove_old = true;
 +				else
 +					accept_new = false;
 +			}
++			/* COSTS_DIFFERENT: keep both */
 +		}
 +
 +		/*
@@ -403,19 +507,11 @@ index 73518c8f870..21fa7c03293 100644
  
  /*
   * add_partial_path_precheck
-@@ -908,6 +1236,7 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
-  * sure we don't add a partial path if there's already a complete path that
-  * dominates it, since in that case the proposed path is surely a loser.
-  */
-+#ifdef NO_CHAOS
- bool
- add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
- 						  Cost startup_cost, Cost total_cost, List *pathkeys)
-@@ -1011,6 +1340,15 @@ add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -1011,6 +1357,15 @@ add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
  
  	return true;
  }
-+#else
++#if 0
 +bool
 +add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
 +						  Cost startup_cost, Cost total_cost, List *pathkeys)
