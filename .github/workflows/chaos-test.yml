@@ -208,9 +208,24 @@ jobs:
           find . -name 'postmaster.log' -exec cp --parents {} /tmp/chaos-artifacts/logs/ \; 2>/dev/null || true
           find . -path '*/tmp_check/*/log/*.log' -exec cp --parents {} /tmp/chaos-artifacts/logs/ \; 2>/dev/null || true
 
-          # Gather core dumps if any
-          find . -name 'core' -o -name 'core.*' 2>/dev/null | while read core; do
-            cp --parents "$core" /tmp/chaos-artifacts/ 2>/dev/null || true
+          # Gather core dumps: extract backtraces and compress cores
+          mkdir -p /tmp/chaos-artifacts/cores
+          PG_BINDIR="$HOME/pg-install/bin"
+          find . \( -name 'core' -o -name 'core.*' \) -type f 2>/dev/null | while read core; do
+            CORE_BASE=$(basename "$core")
+            echo "=== Processing $core ===" >> /tmp/chaos-artifacts/cores/backtraces.txt
+
+            # Try gdb backtrace against the most likely binary (postgres)
+            for bin in "$PG_BINDIR/postgres" "$PG_BINDIR/psql" "$PG_BINDIR/pg_regress"; do
+              if gdb -batch -ex "thread apply all bt full" "$bin" "$core" >> /tmp/chaos-artifacts/cores/backtraces.txt 2>&1; then
+                break
+              fi
+            done
+
+            echo "" >> /tmp/chaos-artifacts/cores/backtraces.txt
+
+            # Compress and keep the core (gzip typically shrinks 10x+)
+            gzip -c "$core" > "/tmp/chaos-artifacts/cores/${CORE_BASE}.gz" 2>/dev/null || true
           done
 
           # Copy reports
