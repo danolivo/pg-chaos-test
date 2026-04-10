@@ -1,4 +1,4 @@
-From a51f4854be8370d9728fbe77b4c9b61c28c167a5 Mon Sep 17 00:00:00 2001
+From b7f9279f8438da446c783de35d0a41cce266bbce Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
 Date: Wed, 8 Apr 2026 09:08:28 +0200
 Subject: [PATCH 2/2] Add chaos mode for optimizer path selection and bgworker
@@ -23,8 +23,8 @@ the seqscan+sort-vs-indexscan decision in plan_cluster_use_sort
 ---
  src/backend/optimizer/path/allpaths.c |   8 +-
  src/backend/optimizer/plan/planner.c  |   7 +
- src/backend/optimizer/util/pathnode.c | 357 +++++++++++++++++++++++++-
- 3 files changed, 370 insertions(+), 2 deletions(-)
+ src/backend/optimizer/util/pathnode.c | 355 +++++++++++++++++++++++++-
+ 3 files changed, 368 insertions(+), 2 deletions(-)
 
 diff --git a/src/backend/optimizer/path/allpaths.c b/src/backend/optimizer/path/allpaths.c
 index 61093f222a1..80e4b974f78 100644
@@ -93,7 +93,7 @@ index 4ec76ce31a9..4e5dd987b94 100644
  
  /*
 diff --git a/src/backend/optimizer/util/pathnode.c b/src/backend/optimizer/util/pathnode.c
-index 73518c8f870..efd676565af 100644
+index 73518c8f870..8447cd23747 100644
 --- a/src/backend/optimizer/util/pathnode.c
 +++ b/src/backend/optimizer/util/pathnode.c
 @@ -15,6 +15,7 @@
@@ -151,7 +151,7 @@ index 73518c8f870..efd676565af 100644
  void
  add_path(RelOptInfo *parent_rel, Path *new_path)
  {
-@@ -664,6 +684,196 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
+@@ -664,6 +684,199 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
  			pfree(new_path);
  	}
  }
@@ -186,8 +186,11 @@ index 73518c8f870..efd676565af 100644
 +		PathKeysComparison keyscmp;
 +		BMS_Comparison outercmp;
 +
-+		/* Chaos: randomise cost comparison. */
-+		costcmp = pg_prng_uint32(&pg_global_prng_state) % 4;
++		/*
++		 * Do a fuzzy cost comparison with standard fuzziness limit.
++		 */
++		costcmp = compare_path_costs_fuzzily(new_path, old_path,
++											 STD_FUZZ_FACTOR);
 +
 +		if (costcmp != COSTS_DIFFERENT)
 +		{
@@ -348,7 +351,7 @@ index 73518c8f870..efd676565af 100644
  
  /*
   * add_path_precheck
-@@ -749,7 +959,16 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -749,7 +962,16 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
  
  	return true;
  }
@@ -366,7 +369,7 @@ index 73518c8f870..efd676565af 100644
  /*
   * add_partial_path
   *	  Like add_path, our goal here is to consider whether a path is worthy
-@@ -789,6 +1008,7 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -789,6 +1011,7 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
   *	  take an exception for IndexPaths as partial index paths won't be
   *	  referenced by partial BitmapHeapPaths.
   */
@@ -374,7 +377,7 @@ index 73518c8f870..efd676565af 100644
  void
  add_partial_path(RelOptInfo *parent_rel, Path *new_path)
  {
-@@ -898,6 +1118,132 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
+@@ -898,6 +1121,127 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
  		pfree(new_path);
  	}
  }
@@ -422,10 +425,10 @@ index 73518c8f870..efd676565af 100644
 +			PathCostComparison costcmp;
 +
 +			/*
-+			 * Chaos: randomize cost comparison.  compare_path_costs_fuzzily
-+			 * returns only COSTS_EQUAL, COSTS_BETTER1, COSTS_BETTER2.
++			 * Do a fuzzy cost comparison with standard fuzziness limit.
 +			 */
-+			costcmp = pg_prng_uint32(&pg_global_prng_state) % 4;
++			costcmp = compare_path_costs_fuzzily(new_path, old_path,
++												 STD_FUZZ_FACTOR);
 +
 +			if (costcmp == COSTS_BETTER1)
 +			{
@@ -443,11 +446,6 @@ index 73518c8f870..efd676565af 100644
 +					remove_old = true;
 +				else if (keyscmp == PATHKEYS_BETTER2)
 +					accept_new = false;
-+				/*
-+				 * Chaos: the original tiebreaker calls
-+				 * compare_path_costs_fuzzily(..., 1.0000000001).
-+				 * Randomize with pg_prng_bool.
-+				 */
 +				else if (compare_path_costs_fuzzily(new_path, old_path,
 +													1.0000000001) == COSTS_BETTER1)
 +					remove_old = true;
@@ -507,7 +505,7 @@ index 73518c8f870..efd676565af 100644
  
  /*
   * add_partial_path_precheck
-@@ -1011,6 +1357,15 @@ add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -1011,6 +1355,15 @@ add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
  
  	return true;
  }

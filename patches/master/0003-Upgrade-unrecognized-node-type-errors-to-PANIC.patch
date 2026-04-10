@@ -1,0 +1,938 @@
+diff --git a/src/backend/commands/define.c b/src/backend/commands/define.c
+index 4172cc9bacb..0b2c30b75b1 100644
+--- a/src/backend/commands/define.c
++++ b/src/backend/commands/define.c
+@@ -55,7 +55,7 @@ defGetString(DefElem *def)
+ 		case T_A_Star:
+ 			return pstrdup("*");
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(def->arg));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(def->arg));
+ 	}
+ 	return NULL;				/* keep compiler quiet */
+ }
+@@ -326,7 +326,7 @@ defGetTypeLength(DefElem *def)
+ 			/* must be an operator name */
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(def->arg));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(def->arg));
+ 	}
+ 	ereport(ERROR,
+ 			(errcode(ERRCODE_SYNTAX_ERROR),
+@@ -349,7 +349,7 @@ defGetStringList(DefElem *def)
+ 				 errmsg("%s requires a parameter",
+ 						def->defname)));
+ 	if (!IsA(def->arg, List))
+-		elog(ERROR, "unrecognized node type: %d", (int) nodeTag(def->arg));
++		elog(PANIC, "unrecognized node type: %d", (int) nodeTag(def->arg));
+ 
+ 	foreach(cell, (List *) def->arg)
+ 	{
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index eec09ba1ded..8b9c5727422 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -19870,7 +19870,7 @@ RangeVarCallbackForAlterRelation(const RangeVar *rv, Oid relid, Oid oldrelid,
+ 		reltype = ((AlterTableStmt *) stmt)->objtype;
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d", (int) nodeTag(stmt));
++		elog(PANIC, "unrecognized node type: %d", (int) nodeTag(stmt));
+ 		reltype = OBJECT_TABLE; /* placate compiler */
+ 	}
+ 
+diff --git a/src/backend/commands/typecmds.c b/src/backend/commands/typecmds.c
+index cd38e9cddf4..1b62ad419f1 100644
+--- a/src/backend/commands/typecmds.c
++++ b/src/backend/commands/typecmds.c
+@@ -871,7 +871,7 @@ DefineDomain(ParseState *pstate, CreateDomainStmt *stmt)
+ 		Constraint *constr = lfirst(listptr);
+ 
+ 		if (!IsA(constr, Constraint))
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(constr));
+ 		switch (constr->contype)
+ 		{
+@@ -2985,7 +2985,7 @@ AlterDomainAddConstraint(List *names, Node *newConstraint,
+ 	checkDomainOwner(tup);
+ 
+ 	if (!IsA(newConstraint, Constraint))
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(newConstraint));
+ 
+ 	constr = (Constraint *) newConstraint;
+diff --git a/src/backend/executor/execAmi.c b/src/backend/executor/execAmi.c
+index 37fe03fdc37..082f8650705 100644
+--- a/src/backend/executor/execAmi.c
++++ b/src/backend/executor/execAmi.c
+@@ -300,7 +300,7 @@ ExecReScan(PlanState *node)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 			break;
+ 	}
+ 
+@@ -403,7 +403,7 @@ ExecRestrPos(PlanState *node)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 			break;
+ 	}
+ }
+diff --git a/src/backend/executor/execAsync.c b/src/backend/executor/execAsync.c
+index cf7ddbb01f4..bce2e8806a6 100644
+--- a/src/backend/executor/execAsync.c
++++ b/src/backend/executor/execAsync.c
+@@ -40,7 +40,7 @@ ExecAsyncRequest(AsyncRequest *areq)
+ 			break;
+ 		default:
+ 			/* If the node doesn't support async, caller messed up. */
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(areq->requestee));
+ 	}
+ 
+@@ -73,7 +73,7 @@ ExecAsyncConfigureWait(AsyncRequest *areq)
+ 			break;
+ 		default:
+ 			/* If the node doesn't support async, caller messed up. */
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(areq->requestee));
+ 	}
+ 
+@@ -99,7 +99,7 @@ ExecAsyncNotify(AsyncRequest *areq)
+ 			break;
+ 		default:
+ 			/* If the node doesn't support async, caller messed up. */
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(areq->requestee));
+ 	}
+ 
+@@ -124,7 +124,7 @@ ExecAsyncResponse(AsyncRequest *areq)
+ 			break;
+ 		default:
+ 			/* If the node doesn't support async, caller messed up. */
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(areq->requestor));
+ 	}
+ }
+diff --git a/src/backend/executor/execExpr.c b/src/backend/executor/execExpr.c
+index 77229141b38..9f8419816f9 100644
+--- a/src/backend/executor/execExpr.c
++++ b/src/backend/executor/execExpr.c
+@@ -2688,7 +2688,7 @@ ExecInitExprRec(Expr *node, ExprState *state,
+ 			}
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(node));
+ 			break;
+ 	}
+diff --git a/src/backend/executor/execProcnode.c b/src/backend/executor/execProcnode.c
+index 7c4c66e323f..65aa0cab3a8 100644
+--- a/src/backend/executor/execProcnode.c
++++ b/src/backend/executor/execProcnode.c
+@@ -383,7 +383,7 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 			result = NULL;		/* keep compiler quiet */
+ 			break;
+ 	}
+@@ -519,7 +519,7 @@ MultiExecProcNode(PlanState *node)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 			result = NULL;
+ 			break;
+ 	}
+@@ -738,7 +738,7 @@ ExecEndNode(PlanState *node)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 			break;
+ 	}
+ }
+diff --git a/src/backend/executor/execSRF.c b/src/backend/executor/execSRF.c
+index 8aedcc6a459..33eb2440a7d 100644
+--- a/src/backend/executor/execSRF.c
++++ b/src/backend/executor/execSRF.c
+@@ -473,7 +473,7 @@ ExecInitFunctionResultSet(Expr *expr,
+ 				   econtext->ecxt_per_query_memory, true, true);
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(expr));
+ 
+ 	/* shouldn't get here unless the selected function returns set */
+diff --git a/src/backend/nodes/copyfuncs.c b/src/backend/nodes/copyfuncs.c
+index ff22a04abe5..a51b7b56451 100644
+--- a/src/backend/nodes/copyfuncs.c
++++ b/src/backend/nodes/copyfuncs.c
+@@ -132,7 +132,7 @@ _copyA_Const(const A_Const *from)
+ 				COPY_STRING_FIELD(val.bsval.bsval);
+ 				break;
+ 			default:
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(&from->val));
+ 				break;
+ 		}
+@@ -203,7 +203,7 @@ copyObjectImpl(const void *from)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(from));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(from));
+ 			retval = NULL;		/* keep compiler quiet */
+ 			break;
+ 	}
+diff --git a/src/backend/nodes/equalfuncs.c b/src/backend/nodes/equalfuncs.c
+index 3d1a1adf86e..5147c566802 100644
+--- a/src/backend/nodes/equalfuncs.c
++++ b/src/backend/nodes/equalfuncs.c
+@@ -254,7 +254,7 @@ equal(const void *a, const void *b)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(a));
+ 			retval = false;		/* keep compiler quiet */
+ 			break;
+diff --git a/src/backend/nodes/nodeFuncs.c b/src/backend/nodes/nodeFuncs.c
+index c0b880ec233..5628a0981aa 100644
+--- a/src/backend/nodes/nodeFuncs.c
++++ b/src/backend/nodes/nodeFuncs.c
+@@ -288,7 +288,7 @@ exprType(const Node *expr)
+ 			type = ((const GraphPropertyRef *) expr)->typeId;
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(expr));
+ 			type = InvalidOid;	/* keep compiler quiet */
+ 			break;
+ 	}
+@@ -1067,7 +1067,7 @@ exprCollation(const Node *expr)
+ 			coll = ((const GraphPropertyRef *) expr)->collation;
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(expr));
+ 			coll = InvalidOid;	/* keep compiler quiet */
+ 			break;
+ 	}
+@@ -1311,7 +1311,7 @@ exprSetCollation(Node *expr, Oid collation)
+ 			Assert(!OidIsValid(collation)); /* ... so never set a collation */
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(expr));
+ 			break;
+ 	}
+ }
+@@ -2711,7 +2711,7 @@ expression_tree_walker_impl(Node *node,
+ 			}
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(node));
+ 			break;
+ 	}
+@@ -3811,7 +3811,7 @@ expression_tree_mutator_impl(Node *node,
+ 			}
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(node));
+ 			break;
+ 	}
+@@ -4809,7 +4809,7 @@ raw_expression_tree_walker_impl(Node *node,
+ 			}
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(node));
+ 			break;
+ 	}
+diff --git a/src/backend/nodes/queryjumblefuncs.c b/src/backend/nodes/queryjumblefuncs.c
+index 7c63766a51c..5effbb1fd77 100644
+--- a/src/backend/nodes/queryjumblefuncs.c
++++ b/src/backend/nodes/queryjumblefuncs.c
+@@ -735,7 +735,7 @@ _jumbleA_Const(JumbleState *jstate, Node *node)
+ 				JUMBLE_STRING(val.bsval.bsval);
+ 				break;
+ 			default:
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(&expr->val));
+ 				break;
+ 		}
+diff --git a/src/backend/nodes/read.c b/src/backend/nodes/read.c
+index f85cf65ea48..c255a2a2526 100644
+--- a/src/backend/nodes/read.c
++++ b/src/backend/nodes/read.c
+@@ -502,7 +502,7 @@ nodeRead(const char *token, int tok_len)
+ 			result = (Node *) makeBitString(debackslash(token, tok_len));
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) type);
++			elog(PANIC, "unrecognized node type: %d", (int) type);
+ 			result = NULL;		/* keep compiler happy */
+ 			break;
+ 	}
+diff --git a/src/backend/nodes/readfuncs.c b/src/backend/nodes/readfuncs.c
+index b6b2ce6c792..3d0cbd3bc2b 100644
+--- a/src/backend/nodes/readfuncs.c
++++ b/src/backend/nodes/readfuncs.c
+@@ -336,7 +336,7 @@ _readA_Const(void)
+ 				memcpy(&local_node->val, tmp, sizeof(BitString));
+ 				break;
+ 			default:
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(tmp));
+ 				break;
+ 		}
+diff --git a/src/backend/optimizer/path/allpaths.c b/src/backend/optimizer/path/allpaths.c
+index 80e4b974f78..2307f8a91be 100644
+--- a/src/backend/optimizer/path/allpaths.c
++++ b/src/backend/optimizer/path/allpaths.c
+@@ -4229,7 +4229,7 @@ recurse_pushdown_safe(Node *setOp, Query *topquery,
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(setOp));
+ 	}
+ 	return true;
+@@ -4618,7 +4618,7 @@ recurse_push_qual(Node *setOp, Query *topquery,
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(setOp));
+ 	}
+ }
+diff --git a/src/backend/optimizer/path/costsize.c b/src/backend/optimizer/path/costsize.c
+index 1c575e56ff6..515dbd4191d 100644
+--- a/src/backend/optimizer/path/costsize.c
++++ b/src/backend/optimizer/path/costsize.c
+@@ -989,7 +989,7 @@ get_indexpath_pages(Path *bitmapqual)
+ 		result = (double) ipath->indexinfo->pages;
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d", nodeTag(bitmapqual));
++		elog(PANIC, "unrecognized node type: %d", nodeTag(bitmapqual));
+ 
+ 	return result;
+ }
+@@ -1139,7 +1139,7 @@ cost_bitmap_tree_node(Path *path, Cost *cost, Selectivity *selec)
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d", nodeTag(path));
++		elog(PANIC, "unrecognized node type: %d", nodeTag(path));
+ 		*cost = *selec = 0;		/* keep compiler quiet */
+ 	}
+ }
+diff --git a/src/backend/optimizer/path/indxpath.c b/src/backend/optimizer/path/indxpath.c
+index 67d9dc35f44..6aa871a3508 100644
+--- a/src/backend/optimizer/path/indxpath.c
++++ b/src/backend/optimizer/path/indxpath.c
+@@ -2187,7 +2187,7 @@ find_indexpath_quals(Path *bitmapqual, List **quals, List **preds)
+ 		*preds = list_concat(*preds, ipath->indexinfo->indpred);
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d", nodeTag(bitmapqual));
++		elog(PANIC, "unrecognized node type: %d", nodeTag(bitmapqual));
+ }
+ 
+ 
+diff --git a/src/backend/optimizer/plan/createplan.c b/src/backend/optimizer/plan/createplan.c
+index c7bc41c30d7..7dafaebb8e5 100644
+--- a/src/backend/optimizer/plan/createplan.c
++++ b/src/backend/optimizer/plan/createplan.c
+@@ -534,7 +534,7 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
+ 													 (GatherMergePath *) best_path);
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) best_path->pathtype);
+ 			plan = NULL;		/* keep compiler quiet */
+ 			break;
+@@ -790,7 +790,7 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) best_path->pathtype);
+ 			plan = NULL;		/* keep compiler quiet */
+ 			break;
+@@ -1090,7 +1090,7 @@ create_join_plan(PlannerInfo *root, JoinPath *best_path)
+ 												 (NestPath *) best_path);
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) best_path->path.pathtype);
+ 			plan = NULL;		/* keep compiler quiet */
+ 			break;
+@@ -3362,7 +3362,7 @@ create_bitmap_subplan(PlannerInfo *root, Path *bitmapqual,
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d", nodeTag(bitmapqual));
++		elog(PANIC, "unrecognized node type: %d", nodeTag(bitmapqual));
+ 		plan = NULL;			/* keep compiler quiet */
+ 	}
+ 
+@@ -5468,7 +5468,7 @@ bitmap_subplan_mark_shared(Plan *plan)
+ 	else if (IsA(plan, BitmapIndexScan))
+ 		((BitmapIndexScan *) plan)->isshared = true;
+ 	else
+-		elog(ERROR, "unrecognized node type: %d", nodeTag(plan));
++		elog(PANIC, "unrecognized node type: %d", nodeTag(plan));
+ }
+ 
+ /*****************************************************************************
+diff --git a/src/backend/optimizer/plan/initsplan.c b/src/backend/optimizer/plan/initsplan.c
+index 96ee312ebdf..11865a048ee 100644
+--- a/src/backend/optimizer/plan/initsplan.c
++++ b/src/backend/optimizer/plan/initsplan.c
+@@ -189,7 +189,7 @@ add_base_rels_to_query(PlannerInfo *root, Node *jtnode)
+ 		add_base_rels_to_query(root, j->rarg);
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+@@ -334,7 +334,7 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
+ 												where_needed);
+ 		}
+ 		else
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 	}
+ }
+ 
+@@ -391,7 +391,7 @@ add_vars_to_attr_needed(PlannerInfo *root, List *vars,
+ 												where_needed);
+ 		}
+ 		else
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 	}
+ }
+ 
+@@ -1829,7 +1829,7 @@ deconstruct_recurse(PlannerInfo *root, Node *jtnode,
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 		joinlist = NIL;			/* keep compiler quiet */
+ 	}
+@@ -1981,7 +1981,7 @@ deconstruct_distribute(PlannerInfo *root, JoinTreeItem *jtitem)
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	}
+ }
+diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
+index 4e5dd987b94..bfa24987037 100644
+--- a/src/backend/optimizer/plan/planner.c
++++ b/src/backend/optimizer/plan/planner.c
+@@ -1482,7 +1482,7 @@ preprocess_qual_conditions(PlannerInfo *root, Node *jtnode)
+ 		j->quals = preprocess_expression(root, j->quals, EXPRKIND_QUAL);
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+diff --git a/src/backend/optimizer/plan/setrefs.c b/src/backend/optimizer/plan/setrefs.c
+index ff0e875f2a2..b3b80f96270 100644
+--- a/src/backend/optimizer/plan/setrefs.c
++++ b/src/backend/optimizer/plan/setrefs.c
+@@ -1346,7 +1346,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
+ 			}
+ 			break;
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(plan));
+ 			break;
+ 	}
+diff --git a/src/backend/optimizer/plan/subselect.c b/src/backend/optimizer/plan/subselect.c
+index ccec1eaa7fe..eaaf1a8de65 100644
+--- a/src/backend/optimizer/plan/subselect.c
++++ b/src/backend/optimizer/plan/subselect.c
+@@ -3106,7 +3106,7 @@ finalize_plan(PlannerInfo *root, Plan *plan,
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(plan));
+ 	}
+ 
+diff --git a/src/backend/optimizer/prep/prepjointree.c b/src/backend/optimizer/prep/prepjointree.c
+index 95bf51606cc..1dddcbefafb 100644
+--- a/src/backend/optimizer/prep/prepjointree.c
++++ b/src/backend/optimizer/prep/prepjointree.c
+@@ -811,7 +811,7 @@ pull_up_sublinks_jointree_recurse(PlannerInfo *root, Node *jtnode,
+ 		jtnode = jtlink;
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return jtnode;
+ }
+@@ -1369,7 +1369,7 @@ pull_up_subqueries_recurse(PlannerInfo *root, Node *jtnode,
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return jtnode;
+ }
+@@ -1880,7 +1880,7 @@ pull_up_union_leaf_queries(Node *setOp, PlannerInfo *root, int parentRTindex,
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(setOp));
+ 	}
+ }
+@@ -2399,7 +2399,7 @@ is_simple_union_all_recurse(Node *setOp, Query *setOpQuery, List *colTypes)
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(setOp));
+ 		return false;			/* keep compiler quiet */
+ 	}
+@@ -2521,7 +2521,7 @@ jointree_contains_lateral_outer_refs(PlannerInfo *root, Node *jtnode,
+ 			return true;
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return false;
+ }
+@@ -2741,7 +2741,7 @@ replace_vars_in_jointree(Node *jtnode,
+ 		context->wrap_option = save_wrap_option;
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+@@ -3397,7 +3397,7 @@ reduce_outer_joins_pass1(Node *jtnode)
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return result;
+ }
+@@ -3692,7 +3692,7 @@ reduce_outer_joins_pass2(Node *jtnode,
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+@@ -4198,7 +4198,7 @@ remove_useless_results_recurse(PlannerInfo *root, Node *jtnode,
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return jtnode;
+ }
+@@ -4563,7 +4563,7 @@ get_relids_in_jointree(Node *jtnode, bool include_outer_joins,
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return result;
+ }
+@@ -4626,7 +4626,7 @@ find_jointree_node_for_rel(Node *jtnode, int relid)
+ 			return jtnode;
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return NULL;
+ }
+@@ -4718,6 +4718,6 @@ get_nullingrels_recurse(Node *jtnode, Relids upper_nullingrels,
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+diff --git a/src/backend/optimizer/prep/prepunion.c b/src/backend/optimizer/prep/prepunion.c
+index d1f022c5bfd..e0c4cc28b23 100644
+--- a/src/backend/optimizer/prep/prepunion.c
++++ b/src/backend/optimizer/prep/prepunion.c
+@@ -349,7 +349,7 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(setOp));
+ 		*pTargetList = NIL;
+ 		rel = NULL;				/* keep compiler quiet */
+diff --git a/src/backend/optimizer/util/clauses.c b/src/backend/optimizer/util/clauses.c
+index 9fb266d089d..9ac69776211 100644
+--- a/src/backend/optimizer/util/clauses.c
++++ b/src/backend/optimizer/util/clauses.c
+@@ -2248,7 +2248,7 @@ find_subquery_safe_quals(Node *jtnode, List **safe_quals)
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+diff --git a/src/backend/optimizer/util/placeholder.c b/src/backend/optimizer/util/placeholder.c
+index e1706363c88..47506605aa9 100644
+--- a/src/backend/optimizer/util/placeholder.c
++++ b/src/backend/optimizer/util/placeholder.c
+@@ -244,7 +244,7 @@ find_placeholders_recurse(PlannerInfo *root, Node *jtnode)
+ 		find_placeholders_in_expr(root, j->quals);
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+diff --git a/src/backend/parser/parse_clause.c b/src/backend/parser/parse_clause.c
+index 967eea44f1c..65450904264 100644
+--- a/src/backend/parser/parse_clause.c
++++ b/src/backend/parser/parse_clause.c
+@@ -1758,7 +1758,7 @@ transformFromClauseItem(ParseState *pstate, Node *n,
+ 		return (Node *) j;
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d", (int) nodeTag(n));
++		elog(PANIC, "unrecognized node type: %d", (int) nodeTag(n));
+ 	return NULL;				/* can't get here, keep compiler quiet */
+ }
+ 
+@@ -1928,7 +1928,7 @@ markRelsAsNulledBy(ParseState *pstate, Node *n, int jindex)
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d", (int) nodeTag(n));
++		elog(PANIC, "unrecognized node type: %d", (int) nodeTag(n));
+ 		varno = 0;				/* keep compiler quiet */
+ 	}
+ 
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index f535f3b9351..73d9bcee842 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -375,7 +375,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
+ 
+ 		default:
+ 			/* should not reach here */
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(expr));
+ 			result = NULL;		/* keep compiler quiet */
+ 			break;
+ 	}
+diff --git a/src/backend/parser/parse_node.c b/src/backend/parser/parse_node.c
+index dacd851cffd..d86f46a0f3b 100644
+--- a/src/backend/parser/parse_node.c
++++ b/src/backend/parser/parse_node.c
+@@ -463,7 +463,7 @@ make_const(ParseState *pstate, A_Const *aconst)
+ 			break;
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(&aconst->val));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(&aconst->val));
+ 			return NULL;		/* keep compiler quiet */
+ 	}
+ 
+diff --git a/src/backend/parser/parse_relation.c b/src/backend/parser/parse_relation.c
+index ffd1fdab7a0..209868a30ab 100644
+--- a/src/backend/parser/parse_relation.c
++++ b/src/backend/parser/parse_relation.c
+@@ -1121,7 +1121,7 @@ markRTEForSelectPriv(ParseState *pstate, int rtindex, AttrNumber col)
+ 				markRTEForSelectPriv(pstate, varno, InvalidAttrNumber);
+ 			}
+ 			else
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(j->larg));
+ 			if (IsA(j->rarg, RangeTblRef))
+ 			{
+@@ -1136,7 +1136,7 @@ markRTEForSelectPriv(ParseState *pstate, int rtindex, AttrNumber col)
+ 				markRTEForSelectPriv(pstate, varno, InvalidAttrNumber);
+ 			}
+ 			else
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(j->rarg));
+ 		}
+ 		else
+diff --git a/src/backend/parser/parse_utilcmd.c b/src/backend/parser/parse_utilcmd.c
+index 347f0259e5d..b30496a319b 100644
+--- a/src/backend/parser/parse_utilcmd.c
++++ b/src/backend/parser/parse_utilcmd.c
+@@ -286,7 +286,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
+ 				break;
+ 
+ 			default:
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(element));
+ 				break;
+ 		}
+@@ -3918,7 +3918,7 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
+ 						skipValidation = false;
+ 				}
+ 				else
+-					elog(ERROR, "unrecognized node type: %d",
++					elog(PANIC, "unrecognized node type: %d",
+ 						 (int) nodeTag(cmd->def));
+ 				break;
+ 
+@@ -4229,7 +4229,7 @@ transformConstraintAttrs(ParseState *pstate, List *constraintList)
+ 		Constraint *con = (Constraint *) lfirst(clist);
+ 
+ 		if (!IsA(con, Constraint))
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(con));
+ 		switch (con->contype)
+ 		{
+@@ -4555,7 +4555,7 @@ transformCreateSchemaStmtElements(ParseState *pstate, List *schemaElts,
+ 				break;
+ 
+ 			default:
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(element));
+ 		}
+ 	}
+diff --git a/src/backend/rewrite/rewriteHandler.c b/src/backend/rewrite/rewriteHandler.c
+index 021c73f1b67..ae6791e7ad5 100644
+--- a/src/backend/rewrite/rewriteHandler.c
++++ b/src/backend/rewrite/rewriteHandler.c
+@@ -1951,7 +1951,7 @@ markQueryForLocking(Query *qry, Node *jtnode,
+ 		markQueryForLocking(qry, j->rarg, strength, waitPolicy, pushedDown);
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+diff --git a/src/backend/tcop/pquery.c b/src/backend/tcop/pquery.c
+index ee731000820..802e20c198c 100644
+--- a/src/backend/tcop/pquery.c
++++ b/src/backend/tcop/pquery.c
+@@ -263,7 +263,7 @@ ChoosePortalStrategy(List *stmts)
+ 			}
+ 		}
+ 		else
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(stmt));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(stmt));
+ 	}
+ 
+ 	/*
+@@ -303,7 +303,7 @@ ChoosePortalStrategy(List *stmts)
+ 			}
+ 		}
+ 		else
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(stmt));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(stmt));
+ 	}
+ 	if (nSetTag == 1)
+ 		return PORTAL_ONE_RETURNING;
+diff --git a/src/backend/tcop/utility.c b/src/backend/tcop/utility.c
+index 1d34c19913e..4435b21b3c9 100644
+--- a/src/backend/tcop/utility.c
++++ b/src/backend/tcop/utility.c
+@@ -393,7 +393,7 @@ ClassifyUtilityCommandAsReadOnly(Node *parsetree)
+ 			}
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d",
++			elog(PANIC, "unrecognized node type: %d",
+ 				 (int) nodeTag(parsetree));
+ 			return 0;			/* silence stupider compilers */
+ 	}
+@@ -1925,7 +1925,7 @@ ProcessUtilitySlow(ParseState *pstate,
+ 				break;
+ 
+ 			default:
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(parsetree));
+ 				break;
+ 		}
+diff --git a/src/backend/utils/adt/oid.c b/src/backend/utils/adt/oid.c
+index a3419728971..630098f74f8 100644
+--- a/src/backend/utils/adt/oid.c
++++ b/src/backend/utils/adt/oid.c
+@@ -277,7 +277,7 @@ oidparse(Node *node)
+ 			return uint32in_subr(castNode(Float, node)->fval, NULL,
+ 								 "oid", NULL);
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 	}
+ 	return InvalidOid;			/* keep compiler quiet */
+ }
+diff --git a/src/backend/utils/adt/ruleutils.c b/src/backend/utils/adt/ruleutils.c
+index 35083fcc733..c75b397ef9e 100644
+--- a/src/backend/utils/adt/ruleutils.c
++++ b/src/backend/utils/adt/ruleutils.c
+@@ -4547,7 +4547,7 @@ has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode)
+ 			return true;
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ 	return false;
+ }
+@@ -4722,7 +4722,7 @@ set_using_names(deparse_namespace *dpns, Node *jtnode, List *parentUsing)
+ 		set_using_names(dpns, j->rarg, parentUsing);
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+@@ -5438,14 +5438,14 @@ identify_join_columns(JoinExpr *j, RangeTblEntry *jrte,
+ 	else if (IsA(j->larg, JoinExpr))
+ 		colinfo->leftrti = ((JoinExpr *) j->larg)->rtindex;
+ 	else
+-		elog(ERROR, "unrecognized node type in jointree: %d",
++		elog(PANIC, "unrecognized node type in jointree: %d",
+ 			 (int) nodeTag(j->larg));
+ 	if (IsA(j->rarg, RangeTblRef))
+ 		colinfo->rightrti = ((RangeTblRef *) j->rarg)->rtindex;
+ 	else if (IsA(j->rarg, JoinExpr))
+ 		colinfo->rightrti = ((JoinExpr *) j->rarg)->rtindex;
+ 	else
+-		elog(ERROR, "unrecognized node type in jointree: %d",
++		elog(PANIC, "unrecognized node type in jointree: %d",
+ 			 (int) nodeTag(j->rarg));
+ 
+ 	/* Assert children will be processed earlier than join in second pass */
+@@ -6916,7 +6916,7 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context)
+ 	}
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(setOp));
+ 	}
+ }
+@@ -8019,7 +8019,7 @@ get_graph_label_expr(Node *label_expr, deparse_context *context)
+ 			}
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(label_expr));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(label_expr));
+ 			break;
+ 	}
+ }
+@@ -11203,7 +11203,7 @@ get_rule_expr(Node *node, deparse_context *context,
+ 			}
+ 
+ 		default:
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(node));
+ 			break;
+ 	}
+ }
+@@ -13263,7 +13263,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
+ 		}
+ 	}
+ 	else
+-		elog(ERROR, "unrecognized node type: %d",
++		elog(PANIC, "unrecognized node type: %d",
+ 			 (int) nodeTag(jtnode));
+ }
+ 
+diff --git a/src/backend/utils/misc/guc_funcs.c b/src/backend/utils/misc/guc_funcs.c
+index e2c2919484e..3bb90d90906 100644
+--- a/src/backend/utils/misc/guc_funcs.c
++++ b/src/backend/utils/misc/guc_funcs.c
+@@ -262,7 +262,7 @@ flatten_set_variable_args(const char *name, List *args)
+ 		}
+ 
+ 		if (!IsA(arg, A_Const))
+-			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(arg));
++			elog(PANIC, "unrecognized node type: %d", (int) nodeTag(arg));
+ 		con = (A_Const *) arg;
+ 
+ 		/* Complain if NULL is used with a non-list variable. */
+@@ -324,7 +324,7 @@ flatten_set_variable_args(const char *name, List *args)
+ 				}
+ 				break;
+ 			default:
+-				elog(ERROR, "unrecognized node type: %d",
++				elog(PANIC, "unrecognized node type: %d",
+ 					 (int) nodeTag(&con->val));
+ 				break;
+ 		}

@@ -6,10 +6,11 @@ Chaos-mode regression testing for upstream PostgreSQL.
 
 ## What it does
 
-Applies patches that randomize internal optimizer decisions and inject
-timing noise into background worker lifecycle, then runs the full
-`make check-world -k` test suite. The workflow **passes** only when both
-conditions hold:
+Applies patches that randomize internal optimizer decisions, inject
+timing noise into background worker lifecycle, and upgrade
+"unrecognized node type" errors to panics, then runs `make check`
+(short) and `make check-world -k` (long). Each workflow **passes**
+only when both conditions hold:
 
 1. No `+ERROR` lines appear in any `*.diffs` regression output.
 2. No core dumps, assertion failures (`TRAP:`), or crash signals
@@ -22,7 +23,8 @@ Located in `patches/<branch>/`, applied in lexicographic order:
 | Patch | Description |
 |-------|-------------|
 | `0001-...bgworker...` | Adds random 1–50 ms delays at background worker startup and normal exit in `BackgroundWorkerMain()`. Also defines `CHAOS_MODE` in `pg_prng.h` to enable all chaos code globally. |
-| `0002-...optimizer...` | Randomizes the three core cost comparison functions (`compare_path_costs`, `compare_fractional_path_costs`, `compare_path_costs_fuzzily`) after the `disabled_nodes` check. Provides alternative `add_path` and `add_partial_path` implementations that randomize multi-dimensional dominance inputs (`costcmp`, `keyscmp`, `outercmp`, rows) while preserving the original decision structure and `pfree` behaviour. Randomizes two additional direct cost comparisons: the partial-vs-parallel-safe path choice in `add_paths_to_append_rel` (`allpaths.c`) and the seqscan+sort-vs-indexscan decision in `plan_cluster_use_sort` (`planner.c`). |
+| `0002-...optimizer...` | Randomizes the three core cost comparison functions (`compare_path_costs`, `compare_fractional_path_costs`, `compare_path_costs_fuzzily`) after the `disabled_nodes` check. Provides alternative `add_path` and `add_partial_path` implementations that randomize dominance inputs (`keyscmp`, `outercmp`, rows, insertion order) while delegating cost comparison to the already-randomized `compare_path_costs_fuzzily`. Randomizes two additional direct cost comparisons: the partial-vs-parallel-safe path choice in `add_paths_to_append_rel` (`allpaths.c`) and the seqscan+sort-vs-indexscan decision in `plan_cluster_use_sort` (`planner.c`). |
+| `0003-...unrecognized...` | Upgrades `elog(ERROR, "unrecognized node type: %d", ...)` to `elog(PANIC, ...)` across executor, parser, planner, and node-handling code. Converts recoverable errors into crashes (core dumps) so that plan corruption caused by chaos randomization is reliably caught by the crash-detection scripts. |
 
 All chaos code is guarded by `#ifdef CHAOS_MODE`, which is defined in
 `pg_prng.h` by patch 0001. Remove or undefine `CHAOS_MODE` to restore
@@ -42,8 +44,8 @@ manual dispatch, and weekly schedule (Sunday 03:00 UTC):
 
 1. Clone upstream `postgres/postgres` at the target ref (default: `master`)
 2. Apply all patches from `patches/master/`
-3. Configure with `--enable-tap-tests --enable-injection-points` and all optional libraries
-4. Build with `-O3 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION`
+3. Configure with `--enable-tap-tests --enable-cassert --enable-debug --enable-injection-points` and all optional libraries
+4. Build with `-O0 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION`
 5. Run the test target (`make check` or `make check-world -k`)
 6. Run `check_diffs_errors.sh` — scan `*.diffs` for `+ERROR`
 7. Run `check_crashes.sh` — scan for core files, `TRAP:`, segfault signals
@@ -69,7 +71,7 @@ corresponding directory.
 
 ```bash
 # From a working tree with chaos changes:
-git diff HEAD -- path/to/file.c > patches/master/0003-description.patch
+git diff HEAD -- path/to/file.c > patches/master/0004-description.patch
 
 # Or from commits:
 git format-patch -1 <commit> -o patches/master/
