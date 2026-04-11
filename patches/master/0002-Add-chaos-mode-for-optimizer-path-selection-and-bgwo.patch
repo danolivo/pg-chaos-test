@@ -1,4 +1,4 @@
-From b7f9279f8438da446c783de35d0a41cce266bbce Mon Sep 17 00:00:00 2001
+From 22e14b72c975a4ba1d404c7bdb9da183829eb067 Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
 Date: Wed, 8 Apr 2026 09:08:28 +0200
 Subject: [PATCH 2/2] Add chaos mode for optimizer path selection and bgworker
@@ -23,8 +23,8 @@ the seqscan+sort-vs-indexscan decision in plan_cluster_use_sort
 ---
  src/backend/optimizer/path/allpaths.c |   8 +-
  src/backend/optimizer/plan/planner.c  |   7 +
- src/backend/optimizer/util/pathnode.c | 355 +++++++++++++++++++++++++-
- 3 files changed, 368 insertions(+), 2 deletions(-)
+ src/backend/optimizer/util/pathnode.c | 340 +++++++++++++++++++++++++-
+ 3 files changed, 353 insertions(+), 2 deletions(-)
 
 diff --git a/src/backend/optimizer/path/allpaths.c b/src/backend/optimizer/path/allpaths.c
 index 61093f222a1..80e4b974f78 100644
@@ -93,7 +93,7 @@ index 4ec76ce31a9..4e5dd987b94 100644
  
  /*
 diff --git a/src/backend/optimizer/util/pathnode.c b/src/backend/optimizer/util/pathnode.c
-index 73518c8f870..8447cd23747 100644
+index 73518c8f870..becc3b973fe 100644
 --- a/src/backend/optimizer/util/pathnode.c
 +++ b/src/backend/optimizer/util/pathnode.c
 @@ -15,6 +15,7 @@
@@ -151,7 +151,7 @@ index 73518c8f870..8447cd23747 100644
  void
  add_path(RelOptInfo *parent_rel, Path *new_path)
  {
-@@ -664,6 +684,199 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
+@@ -664,6 +684,184 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
  			pfree(new_path);
  	}
  }
@@ -199,7 +199,7 @@ index 73518c8f870..8447cd23747 100644
 +			old_path_pathkeys = old_path->param_info ? NIL : old_path->pathkeys;
 +
 +			/* Chaos: randomise pathkeys when either side has them. */
-+			if (old_path_pathkeys != NIL &&new_path_pathkeys != NIL)
++			if (old_path_pathkeys != NIL && new_path_pathkeys != NIL)
 +				keyscmp = pg_prng_uint32(&pg_global_prng_state) % 4;
 +			else
 +				keyscmp = compare_pathkeys(new_path_pathkeys,
@@ -209,13 +209,8 @@ index 73518c8f870..8447cd23747 100644
 +				switch (costcmp)
 +				{
 +					case COSTS_EQUAL:
-+						/* Chaos: randomise outer-rel comparison. */
-+						if (PATH_REQ_OUTER(new_path) != NULL &&
-+							PATH_REQ_OUTER(old_path) != NULL)
-+							outercmp = pg_prng_uint32(&pg_global_prng_state) % 4;
-+						else
-+							outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
-+														  PATH_REQ_OUTER(old_path));
++						outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
++													  PATH_REQ_OUTER(old_path));
 +
 +						if (keyscmp == PATHKEYS_BETTER1)
 +						{
@@ -270,13 +265,8 @@ index 73518c8f870..8447cd23747 100644
 +					case COSTS_BETTER1:
 +						if (keyscmp != PATHKEYS_BETTER2)
 +						{
-+							/* Chaos: randomise outer-rel comparison. */
-+							if (PATH_REQ_OUTER(new_path) != NULL &&
-+								PATH_REQ_OUTER(old_path) != NULL)
-+								outercmp = pg_prng_uint32(&pg_global_prng_state) % 4;
-+							else
-+								outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
-+															  PATH_REQ_OUTER(old_path));
++							outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
++														  PATH_REQ_OUTER(old_path));
 +							if ((outercmp == BMS_EQUAL ||
 +								 outercmp == BMS_SUBSET1) &&
 +								pg_prng_bool(&pg_global_prng_state) &&
@@ -287,13 +277,8 @@ index 73518c8f870..8447cd23747 100644
 +					case COSTS_BETTER2:
 +						if (keyscmp != PATHKEYS_BETTER1)
 +						{
-+							/* Chaos: randomise outer-rel comparison. */
-+							if (PATH_REQ_OUTER(new_path) != NULL &&
-+								PATH_REQ_OUTER(old_path) != NULL)
-+								outercmp = pg_prng_uint32(&pg_global_prng_state) % 4;
-+							else
-+								outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
-+															  PATH_REQ_OUTER(old_path));
++							outercmp = bms_subset_compare(PATH_REQ_OUTER(new_path),
++														  PATH_REQ_OUTER(old_path));
 +							if ((outercmp == BMS_EQUAL ||
 +								 outercmp == BMS_SUBSET2) &&
 +								pg_prng_bool(&pg_global_prng_state) &&
@@ -351,7 +336,7 @@ index 73518c8f870..8447cd23747 100644
  
  /*
   * add_path_precheck
-@@ -749,7 +962,16 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -749,7 +947,16 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
  
  	return true;
  }
@@ -369,7 +354,7 @@ index 73518c8f870..8447cd23747 100644
  /*
   * add_partial_path
   *	  Like add_path, our goal here is to consider whether a path is worthy
-@@ -789,6 +1011,7 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -789,6 +996,7 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
   *	  take an exception for IndexPaths as partial index paths won't be
   *	  referenced by partial BitmapHeapPaths.
   */
@@ -377,7 +362,7 @@ index 73518c8f870..8447cd23747 100644
  void
  add_partial_path(RelOptInfo *parent_rel, Path *new_path)
  {
-@@ -898,6 +1121,127 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
+@@ -898,6 +1106,127 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
  		pfree(new_path);
  	}
  }
@@ -505,7 +490,7 @@ index 73518c8f870..8447cd23747 100644
  
  /*
   * add_partial_path_precheck
-@@ -1011,6 +1355,15 @@ add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+@@ -1011,6 +1340,15 @@ add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
  
  	return true;
  }
@@ -522,5 +507,5 @@ index 73518c8f870..8447cd23747 100644
  
  /*****************************************************************************
 -- 
-2.53.0
+2.51.0
 
