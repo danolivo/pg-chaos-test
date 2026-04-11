@@ -163,24 +163,28 @@ jobs:
         working-directory: pg-src
         run: |
           mkdir -p /tmp/valgrind-logs
-          cat > /tmp/valgrind-launcher.sh << 'LAUNCHER'
+          SUPPFILE="$(pwd)/src/tools/valgrind.supp"
+          cat > /tmp/valgrind-launcher.sh <<LAUNCHER
           #!/bin/bash
-          exec valgrind \
-            --quiet \
-            --trace-children=yes \
-            --track-origins=yes \
-            --read-var-info=yes \
-            --num-callers=30 \
-            --leak-check=no \
-            --suppressions=__SUPPFILE__ \
-            --log-file=/tmp/valgrind-logs/pid-%p.log \
-            --error-exitcode=0 \
-            "$@"
+          exec valgrind \\
+            --quiet \\
+            --trace-children=yes \\
+            --track-origins=yes \\
+            --read-var-info=yes \\
+            --num-callers=30 \\
+            --leak-check=no \\
+            --suppressions=${SUPPFILE} \\
+            --log-file=/tmp/valgrind-logs/pid-%p.log \\
+            --error-exitcode=0 \\
+            "\$@"
           LAUNCHER
-          sed -i "s|__SUPPFILE__|$(pwd)/src/tools/valgrind.supp|g" /tmp/valgrind-launcher.sh
+          # Strip leading whitespace so the shebang is on column 1
+          sed -i 's/^[[:space:]]*//' /tmp/valgrind-launcher.sh
           chmod +x /tmp/valgrind-launcher.sh
           echo "--- Launcher script ---"
           cat /tmp/valgrind-launcher.sh
+          echo "--- Testing launcher ---"
+          /tmp/valgrind-launcher.sh --version || echo "Launcher test failed!"
 
       - name: Run make check under Valgrind (keep going on failure)
         working-directory: pg-src
@@ -227,6 +231,16 @@ jobs:
         if: always() && steps.apply_patches.outputs.patch_failed != 'true'
         id: check_valgrind
         run: |
+          echo "--- Valgrind log directory ---"
+          if [ -d /tmp/valgrind-logs ]; then
+            TOTAL_LOGS=$(find /tmp/valgrind-logs -name '*.log' -type f | wc -l)
+            echo "Found $TOTAL_LOGS Valgrind log files"
+            ls -lh /tmp/valgrind-logs/ | head -20
+          else
+            echo "WARNING: /tmp/valgrind-logs does not exist — Valgrind may not have run"
+          fi
+          echo "---"
+
           VALGRIND_ERRORS=0
           if [ -d /tmp/valgrind-logs ]; then
             # Count files with actual error summaries (ERROR SUMMARY: N errors, where N > 0)
@@ -242,7 +256,7 @@ jobs:
             grep -h 'ERROR SUMMARY: [1-9]' /tmp/valgrind-logs/* 2>/dev/null | head -20
           else
             echo "valgrind_errors=false" >> $GITHUB_OUTPUT
-            echo "No Valgrind errors found."
+            echo "No Valgrind errors found (checked $TOTAL_LOGS log files)."
           fi
 
       # ---- Collect artifacts (always, even on success) ----
