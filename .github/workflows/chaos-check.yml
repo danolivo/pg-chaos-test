@@ -148,7 +148,7 @@ jobs:
         working-directory: pg-src
         run: |
           make -j$(nproc) \
-            CFLAGS="-O0 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION -DHAVE_BACKTRACE_SYMBOLS"
+            CFLAGS="-O0 -g -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION -DHAVE_BACKTRACE_SYMBOLS"
 
       - name: Install
         working-directory: pg-src
@@ -215,7 +215,10 @@ jobs:
 
             # Try gdb backtrace against the most likely binary (postgres)
             for bin in "$PG_BINDIR/postgres" "$PG_BINDIR/psql" "$PG_BINDIR/pg_regress"; do
-              if gdb -batch -ex "thread apply all bt full" "$bin" "$core" >> /tmp/chaos-artifacts/cores/backtraces.txt 2>&1; then
+              if gdb -batch \
+                -ex "set print frame-arguments all" \
+                -ex "thread apply all bt full" \
+                "$bin" "$core" >> /tmp/chaos-artifacts/cores/backtraces.txt 2>&1; then
                 break
               fi
             done

@@ -51,7 +51,7 @@ runner (e.g. `ubuntu-latest-16-cores`).
 1. Clone upstream `postgres/postgres` at the target ref (default: `master`)
 2. Apply all patches from `patches/master/`
 3. Configure with `--enable-tap-tests --enable-cassert --enable-debug --enable-injection-points` and all optional libraries
-4. Build with `-O0 -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION`
+4. Build with `-O0 -g -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION`
 5. Run the test target (`make check` or `make check-world -k`)
 6. Run `check_diffs_errors.sh` — scan `*.diffs` for `+ERROR`
 7. Run `check_crashes.sh` — scan for core files, `TRAP:`, segfault signals
