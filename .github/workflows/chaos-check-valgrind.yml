@@ -1,0 +1,408 @@
+name: "Chaos + Valgrind: make check (short)"
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      pg_ref:
+        description: 'PostgreSQL git ref to test (branch, tag, or SHA)'
+        required: false
+        default: 'master'
+      runner:
+        description: 'GitHub runner label (e.g. ubuntu-latest-16-cores)'
+        required: false
+        default: 'ubuntu-latest'
+  schedule:
+    # Every Sunday at 05:00 UTC (offset from non-Valgrind runs)
+    - cron: '0 5 * * 0'
+
+env:
+  PG_REF: ${{ github.event.inputs.pg_ref || 'master' }}
+  NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+
+jobs:
+  chaos-check-valgrind:
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout chaos-test repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential gcc g++ make pkg-config \
+            libreadline-dev zlib1g-dev flex bison \
+            libxml2-dev libxml2-utils libxslt1-dev \
+            libssl-dev libkrb5-dev libgss-dev \
+            libldap2-dev libpam0g-dev \
+            libselinux1-dev libsepol-dev \
+            libsystemd-dev \
+            liblz4-dev libzstd-dev \
+            libicu-dev \
+            libnuma-dev \
+            libcurl4-openssl-dev \
+            liburing-dev \
+            perl libperl-dev libipc-run-perl \
+            python3 python3-dev \
+            tcl tcl-dev \
+            gettext \
+            xsltproc docbook-xsl docbook-xml \
+            uuid-dev \
+            libpq-dev \
+            slapd ldap-utils \
+            krb5-kdc krb5-admin-server krb5-user \
+            gdb \
+            valgrind
+          # Enable core dumps
+          ulimit -c unlimited
+          sudo sysctl -w kernel.core_pattern=core.%p
+
+      - name: Clone upstream PostgreSQL
+        run: |
+          git clone --depth=1 --branch "$PG_REF" \
+            https://github.com/postgres/postgres.git pg-src
+
+      # ---- Apply patches: fail immediately if they don't apply ----
+      - name: Apply chaos patches
+        id: apply_patches
+        working-directory: pg-src
+        run: |
+          PATCH_DIR="../patches/master"
+          if [ ! -d "$PATCH_DIR" ] || [ -z "$(ls -A "$PATCH_DIR"/*.patch 2>/dev/null)" ]; then
+            echo "::error::No patches found in $PATCH_DIR"
+            exit 1
+          fi
+          for patch in "$PATCH_DIR"/*.patch; do
+            BASENAME=$(basename "$patch")
+            echo "--- Checking: $BASENAME ---"
+            if ! git apply --check "$patch" 2>/tmp/patch_error_${BASENAME}.txt; then
+              echo "::error::Patch $BASENAME does not apply cleanly"
+              cat /tmp/patch_error_${BASENAME}.txt
+              echo "patch_failed=true" >> $GITHUB_OUTPUT
+              echo "failed_patch=$BASENAME" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            echo "--- Applying: $BASENAME ---"
+            git apply --stat "$patch"
+            git apply "$patch"
+          done
+          echo "patch_failed=false" >> $GITHUB_OUTPUT
+          echo "All chaos patches applied successfully."
+
+      - name: Send patch failure email
+        if: failure() && steps.apply_patches.outputs.patch_failed == 'true' && env.NOTIFY_EMAIL != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "pg-chaos-test (check+valgrind): patch no longer applies to ${{ env.PG_REF }}"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GitHub Actions <github-actions@github.com>
+          body: |
+            The chaos patch set no longer applies cleanly to PostgreSQL ${{ env.PG_REF }}.
+
+            Failed patch: ${{ steps.apply_patches.outputs.failed_patch }}
+
+            This likely means upstream changed code in add_path / add_partial_path
+            (pathnode.c) or BackgroundWorkerMain (bgworker.c). The patches need
+            to be regenerated.
+
+            Workflow: ${{ github.workflow }}
+            Repository: ${{ github.repository }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ---
+            Automated message from GitHub Actions.
+
+      - name: Configure
+        working-directory: pg-src
+        run: |
+          ./configure \
+            --enable-tap-tests \
+            --enable-cassert \
+            --enable-debug \
+            --enable-injection-points \
+            --with-icu \
+            --with-openssl \
+            --with-libxml \
+            --with-libxslt \
+            --with-gssapi \
+            --with-ldap \
+            --with-pam \
+            --with-selinux \
+            --with-systemd \
+            --with-lz4 \
+            --with-zstd \
+            --with-perl \
+            --with-python \
+            --with-tcl \
+            --with-uuid=e2fs \
+            --with-libcurl \
+            --prefix=$HOME/pg-install
+
+      - name: Build
+        working-directory: pg-src
+        run: |
+          make -j$(nproc) \
+            CFLAGS="-O0 -DUSE_VALGRIND -DWRITE_READ_PARSE_PLAN_TREES -DCOPY_PARSE_PLAN_TREES -DUSE_INJECTION_POINTS -DREALLOCATE_BITMAPSETS -DDISABLE_LEADER_PARTICIPATION -DHAVE_BACKTRACE_SYMBOLS"
+
+      - name: Install
+        working-directory: pg-src
+        run: make install
+
+      - name: Create Valgrind launcher script
+        working-directory: pg-src
+        run: |
+          mkdir -p /tmp/valgrind-logs
+          cat > /tmp/valgrind-launcher.sh << 'LAUNCHER'
+          #!/bin/bash
+          exec valgrind \
+            --quiet \
+            --trace-children=yes \
+            --track-origins=yes \
+            --read-var-info=yes \
+            --num-callers=30 \
+            --leak-check=no \
+            --suppressions=__SUPPFILE__ \
+            --log-file=/tmp/valgrind-logs/pid-%p.log \
+            --error-exitcode=0 \
+            "$@"
+          LAUNCHER
+          sed -i "s|__SUPPFILE__|$(pwd)/src/tools/valgrind.supp|g" /tmp/valgrind-launcher.sh
+          chmod +x /tmp/valgrind-launcher.sh
+          echo "--- Launcher script ---"
+          cat /tmp/valgrind-launcher.sh
+
+      - name: Run make check under Valgrind (keep going on failure)
+        working-directory: pg-src
+        continue-on-error: true
+        run: |
+          ulimit -c unlimited
+          make check \
+            EXTRA_REGRESS_OPTS="--launcher=/tmp/valgrind-launcher.sh" \
+            PG_TEST_INITDB_EXTRA_OPTS='-c debug_copy_parse_plan_trees=on -c debug_write_read_parse_plan_trees=on -c debug_raw_expression_coverage_test=on' \
+            -j$(nproc) 2>&1 | tee check.log
+
+      # ---- Success factor 1: no +ERROR in diffs ----
+      - name: "Check 1: Scan diffs for +ERROR"
+        if: always() && steps.apply_patches.outputs.patch_failed != 'true'
+        id: check_errors
+        working-directory: pg-src
+        run: |
+          chmod +x ../check_diffs_errors.sh
+          ../check_diffs_errors.sh . | tee /tmp/errors_report.txt
+
+          if grep -q '=== ' /tmp/errors_report.txt; then
+            echo "errors_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "errors_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ---- Success factor 2: no core files, assertions, or segfaults ----
+      - name: "Check 2: Scan for crashes, assertions, segfaults"
+        if: always() && steps.apply_patches.outputs.patch_failed != 'true'
+        id: check_crashes
+        working-directory: pg-src
+        run: |
+          chmod +x ../check_crashes.sh
+          ../check_crashes.sh . | tee /tmp/crashes_report.txt
+
+          if grep -q 'RESULT: Crash evidence detected' /tmp/crashes_report.txt; then
+            echo "crashes_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "crashes_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ---- Success factor 3: no Valgrind errors ----
+      - name: "Check 3: Scan Valgrind logs for errors"
+        if: always() && steps.apply_patches.outputs.patch_failed != 'true'
+        id: check_valgrind
+        run: |
+          VALGRIND_ERRORS=0
+          if [ -d /tmp/valgrind-logs ]; then
+            # Count files with actual error summaries (ERROR SUMMARY: N errors, where N > 0)
+            VALGRIND_ERRORS=$(grep -rl 'ERROR SUMMARY: [1-9]' /tmp/valgrind-logs/ 2>/dev/null | wc -l)
+          fi
+
+          if [ "$VALGRIND_ERRORS" -gt 0 ]; then
+            echo "valgrind_errors=true" >> $GITHUB_OUTPUT
+            echo "Found Valgrind errors in $VALGRIND_ERRORS log file(s):"
+            grep -l 'ERROR SUMMARY: [1-9]' /tmp/valgrind-logs/ 2>/dev/null | head -20
+            echo "---"
+            # Show first few error summaries
+            grep -h 'ERROR SUMMARY: [1-9]' /tmp/valgrind-logs/* 2>/dev/null | head -20
+          else
+            echo "valgrind_errors=false" >> $GITHUB_OUTPUT
+            echo "No Valgrind errors found."
+          fi
+
+      # ---- Collect artifacts (always, even on success) ----
+      - name: Collect regression artifacts
+        if: always()
+        working-directory: pg-src
+        run: |
+          mkdir -p /tmp/chaos-artifacts/diffs
+          mkdir -p /tmp/chaos-artifacts/logs
+
+          # Gather all .diffs files
+          find . -name '*.diffs' -exec cp --parents {} /tmp/chaos-artifacts/diffs/ \; 2>/dev/null || true
+
+          # Gather postmaster and TAP test logs with crash evidence
+          find . -name 'postmaster.log' -exec cp --parents {} /tmp/chaos-artifacts/logs/ \; 2>/dev/null || true
+          find . -path '*/tmp_check/*/log/*.log' -exec cp --parents {} /tmp/chaos-artifacts/logs/ \; 2>/dev/null || true
+
+          # Gather core dumps: extract backtraces and compress cores
+          mkdir -p /tmp/chaos-artifacts/cores
+          PG_BINDIR="$HOME/pg-install/bin"
+          find . \( -name 'core' -o -name 'core.*' \) -type f 2>/dev/null | while read core; do
+            CORE_BASE=$(basename "$core")
+            echo "=== Processing $core ===" >> /tmp/chaos-artifacts/cores/backtraces.txt
+
+            # Try gdb backtrace against the most likely binary (postgres)
+            for bin in "$PG_BINDIR/postgres" "$PG_BINDIR/psql" "$PG_BINDIR/pg_regress"; do
+              if gdb -batch -ex "thread apply all bt full" "$bin" "$core" >> /tmp/chaos-artifacts/cores/backtraces.txt 2>&1; then
+                break
+              fi
+            done
+
+            echo "" >> /tmp/chaos-artifacts/cores/backtraces.txt
+
+            # Compress and keep the core (gzip typically shrinks 10x+)
+            gzip -c "$core" > "/tmp/chaos-artifacts/cores/${CORE_BASE}.gz" 2>/dev/null || true
+          done
+
+          # Gather Valgrind logs (only those with errors to save space)
+          mkdir -p /tmp/chaos-artifacts/valgrind
+          if [ -d /tmp/valgrind-logs ]; then
+            grep -rl 'ERROR SUMMARY: [1-9]' /tmp/valgrind-logs/ 2>/dev/null | while read vlog; do
+              cp "$vlog" /tmp/chaos-artifacts/valgrind/ 2>/dev/null || true
+            done
+            # Also save a summary of all logs
+            grep -h 'ERROR SUMMARY:' /tmp/valgrind-logs/* 2>/dev/null | sort | uniq -c | sort -rn > /tmp/chaos-artifacts/valgrind/summary.txt 2>/dev/null || true
+          fi
+
+          # Copy reports
+          cp -f check.log /tmp/chaos-artifacts/ 2>/dev/null || true
+          cp -f /tmp/errors_report.txt /tmp/chaos-artifacts/ 2>/dev/null || true
+          cp -f /tmp/crashes_report.txt /tmp/chaos-artifacts/ 2>/dev/null || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-check-valgrind-results-${{ github.run_number }}
+          path: /tmp/chaos-artifacts/
+          retention-days: 30
+
+      # ---- Write job summary ----
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Chaos + Valgrind Test Results (make check)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PostgreSQL ref:** \`$PG_REF\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Check 1: Regression diff errors (+ERROR)" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check_errors.outputs.errors_found }}" = "true" ]; then
+            echo ":x: **FAILED** — +ERROR lines found in regression diffs" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":white_check_mark: **PASSED** — no +ERROR in diffs" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Check 2: Crashes / assertions / segfaults" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check_crashes.outputs.crashes_found }}" = "true" ]; then
+            echo ":x: **FAILED** — crash evidence detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":white_check_mark: **PASSED** — no crashes detected" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Check 3: Valgrind errors" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check_valgrind.outputs.valgrind_errors }}" = "true" ]; then
+            echo ":x: **FAILED** — Valgrind errors detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":white_check_mark: **PASSED** — no Valgrind errors" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "<details><summary>Error report</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          head -200 /tmp/errors_report.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(empty)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "<details><summary>Crash report</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          head -200 /tmp/crashes_report.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(empty)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+      # ---- Final verdict ----
+      - name: Final verdict
+        run: |
+          ERRORS="${{ steps.check_errors.outputs.errors_found }}"
+          CRASHES="${{ steps.check_crashes.outputs.crashes_found }}"
+          VALGRIND="${{ steps.check_valgrind.outputs.valgrind_errors }}"
+
+          FAILED=false
+          if [ "$ERRORS" = "true" ]; then
+            echo "::error::+ERROR lines found in regression diffs"
+            FAILED=true
+          fi
+          if [ "$CRASHES" = "true" ]; then
+            echo "::error::Crash evidence (core files, assertions, or segfaults) detected"
+            FAILED=true
+          fi
+          if [ "$VALGRIND" = "true" ]; then
+            echo "::error::Valgrind errors detected"
+            FAILED=true
+          fi
+
+          if [ "$FAILED" = "true" ]; then
+            exit 1
+          else
+            echo "SUCCESS: All chaos + Valgrind regression tests passed."
+          fi
+
+      - name: Send test failure email
+        if: failure() && steps.apply_patches.outputs.patch_failed != 'true' && env.NOTIFY_EMAIL != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "pg-chaos-test (check+valgrind): regression failures on ${{ env.PG_REF }}"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GitHub Actions <github-actions@github.com>
+          body: |
+            The chaos + Valgrind regression test run (make check) against PostgreSQL ${{ env.PG_REF }} has FAILED.
+
+            Results:
+            - +ERROR in diffs: ${{ steps.check_errors.outputs.errors_found }}
+            - Crashes detected: ${{ steps.check_crashes.outputs.crashes_found }}
+            - Valgrind errors: ${{ steps.check_valgrind.outputs.valgrind_errors }}
+
+            Workflow: ${{ github.workflow }}
+            Repository: ${{ github.repository }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Artifacts (diffs, logs, core dumps, Valgrind logs) are available for 30 days at the run URL.
+
+            ---
+            Automated message from GitHub Actions.

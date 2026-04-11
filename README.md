@@ -32,13 +32,19 @@ original behavior.
 
 ## CI workflows
 
-There are two GitHub Actions workflows, both triggered on push, PR,
-manual dispatch, and weekly schedule (Sunday 03:00 UTC):
+All workflows trigger on push, PR, manual dispatch, and weekly schedule:
 
 | Workflow | File | Test target | Timeout |
 |----------|------|-------------|---------|
 | **Short** | `chaos-check.yml` | `make check` | 60 min |
 | **Long**  | `chaos-test.yml`  | `make check-world -k` | 360 min |
+| **Valgrind** | `chaos-check-valgrind.yml` | `make check` under Valgrind | 360 min |
+
+The Valgrind workflow builds with `-DUSE_VALGRIND`, passes
+`--valgrind-path` and PostgreSQL's `src/tools/valgrind.supp` to
+`pg_regress`, and adds a third check for Valgrind error summaries.
+Manual dispatch accepts a `runner` input to select a larger GitHub
+runner (e.g. `ubuntu-latest-16-cores`).
 
 ### Common steps
 
