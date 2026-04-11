@@ -1,11 +1,11 @@
 #!/bin/bash
-# Scan all *.diffs files for lines containing '+ERROR' or
-# 'unrecognized node type' and print the file path followed by
-# matching error lines.
+# Scan all *.diffs files for lines containing '+ERROR',
+# 'unrecognized node type', or 'server closed the connection
+# unexpectedly' and print the file path followed by matching lines.
 
 found=0
 while IFS= read -r -d '' dfile; do
-    matches=$(grep -n -e '+ERROR' -e 'unrecognized node type' "$dfile")
+    matches=$(grep -n -e '+ERROR' -e 'unrecognized node type' -e 'server closed the connection unexpectedly' "$dfile")
     if [ -n "$matches" ]; then
         found=1
         echo "=== $dfile ==="
@@ -15,5 +15,5 @@ while IFS= read -r -d '' dfile; do
 done < <(find "${1:-.}" -name '*.diffs' -print0)
 
 if [ "$found" -eq 0 ]; then
-    echo "No +ERROR or 'unrecognized node type' lines found in any .diffs files."
+    echo "No error patterns found in any .diffs files."
 fi
