@@ -1,11 +1,12 @@
 #!/bin/bash
 # Scan all *.diffs files for lines containing '+ERROR',
-# 'unrecognized node type', or 'server closed the connection
-# unexpectedly' and print the file path followed by matching lines.
+# 'unrecognized node type', 'server closed the connection unexpectedly',
+# or 'could not find pathkey item to sort'
+# and print the file path followed by matching lines.
 
 found=0
 while IFS= read -r -d '' dfile; do
-    matches=$(grep -n -e '+ERROR' -e 'unrecognized node type' -e 'server closed the connection unexpectedly' "$dfile")
+    matches=$(grep -n -e '+ERROR' -e 'unrecognized node type' -e 'server closed the connection unexpectedly' -e 'could not find pathkey item to sort' "$dfile")
     if [ -n "$matches" ]; then
         found=1
         echo "=== $dfile ==="
