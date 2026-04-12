@@ -1,0 +1,35 @@
+diff --git a/src/backend/optimizer/path/pathkeys.c b/src/backend/optimizer/path/pathkeys.c
+index 5eb71635d15..15191bf4601 100644
+--- a/src/backend/optimizer/path/pathkeys.c
++++ b/src/backend/optimizer/path/pathkeys.c
+@@ -1290,6 +1290,16 @@ find_var_for_subquery_tle(RelOptInfo *rel, TargetEntry *tle)
+  * 'outer_pathkeys' is the list of the current outer path's path keys
+  *
+  * Returns the list of new path keys.
++ *
++ * NOTE: The pathkeys we produce here may reference EquivalenceClass members
++ * whose Vars are not needed by the query output (e.g., join-condition columns
++ * absent from the SELECT list).  These pathkeys are expected to be removed by
++ * truncate_useless_pathkeys() before plan creation.  If they survive to
++ * create_gather_merge_plan(), prepare_sort_from_pathkeys() will fail with
++ * "could not find pathkey item to sort" because the plan's target list is
++ * built to carry only Vars required by the query output and by pathkeys that
++ * survived truncation.  Any code that preserves additional pathkeys past
++ * truncation must ensure the plan's target list includes their Vars.
+  */
+ List *
+ build_join_pathkeys(PlannerInfo *root,
+@@ -2195,6 +2205,13 @@ count_common_leading_pathkeys_unordered(List *keys1, List *keys2)
+  *		Shorten the given PathKey List to just the useful PathKeys.  If all
+  *		PathKeys are useful, return the input List, otherwise return a new
+  *		List containing only the useful PathKeys.
++ *
++ * NOTE: The plan target list (built during create_plan) will only include
++ * Vars needed by the query output and by pathkeys that survive this
++ * truncation.  Pathkeys removed here may reference Vars (e.g., join
++ * condition columns not in SELECT) that will be absent from the target
++ * list.  prepare_sort_from_pathkeys() relies on this cleanup having
++ * occurred.  See also build_join_pathkeys().
+  */
+ List *
+ truncate_useless_pathkeys(PlannerInfo *root,
