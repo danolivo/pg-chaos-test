@@ -1,0 +1,39 @@
+From eba1995c2f2ff72b84fb7ae9381774c2ad123c4f Mon Sep 17 00:00:00 2001
+From: "Andrei V. Lepikhov" <lepihov@gmail.com>
+Date: Mon, 13 Apr 2026 13:12:30 +0200
+Subject: [PATCH] Enable CHAOS_MODE
+
+---
+ src/backend/optimizer/plan/createplan.c | 2 +-
+ src/backend/optimizer/plan/planner.c    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/backend/optimizer/plan/createplan.c b/src/backend/optimizer/plan/createplan.c
+index 082ce38ff30..d936588fb29 100644
+--- a/src/backend/optimizer/plan/createplan.c
++++ b/src/backend/optimizer/plan/createplan.c
+@@ -43,7 +43,7 @@
+ #include "tcop/tcopprot.h"
+ #include "utils/lsyscache.h"
+ 
+-
++#define CHAOS_MODE 1
+ /*
+  * Flag bits that can appear in the flags argument of create_plan_recurse().
+  * These can be OR-ed together.
+diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
+index e72479fa489..cd7b28f8085 100644
+--- a/src/backend/optimizer/plan/planner.c
++++ b/src/backend/optimizer/plan/planner.c
+@@ -64,7 +64,7 @@
+ #include "utils/lsyscache.h"
+ #include "utils/rel.h"
+ #include "utils/selfuncs.h"
+-
++#define CHAOS_MODE 1
+ /* GUC parameters */
+ double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
+ int			debug_parallel_query = DEBUG_PARALLEL_OFF;
+-- 
+2.53.0
+
