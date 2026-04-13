@@ -1,0 +1,185 @@
+From 9f0eeffffffa52b5d062982ec8aec6b5aad3d772 Mon Sep 17 00:00:00 2001
+From: "Andrei V. Lepikhov" <lepihov@gmail.com>
+Date: Mon, 13 Apr 2026 09:42:35 +0200
+Subject: [PATCH] Avoid "missing operator" when sorting on a partial btree
+ opfamily
+
+prepare_sort_from_pathkeys() assumed that every EquivalenceMember in a
+pathkey's EC has the pathkey's same-type sort operator in pk_opfamily,
+and adopted the first tlist-matching member's em_datatype as
+pk_datatype.  An EC may legitimately span datatypes (e.g. int8 and a
+user-defined int8-compatible type), and a btree opfamily may carry
+only a partial set of operators.  When the picked member's datatype
+lacked the same-type operator, get_opfamily_member_for_cmptype()
+returned InvalidOid and we elog'd "missing operator".
+
+Filter candidate members by the existence of the required same-type
+sort operator before using their datatype; in the computable-member
+fallback, if the chosen member is unusable, scan ec_members directly
+for any usable one.  Add a regression test by temporarily removing
+the same-type int8alias1 "<" from integer_ops around the existing
+UNION-ALL merge-join reproducer in equivclass.sql.
+---
+ src/backend/optimizer/plan/createplan.c  | 59 +++++++++++++++++++++++-
+ src/test/regress/expected/equivclass.out | 34 ++++++++++++++
+ src/test/regress/sql/equivclass.sql      | 20 ++++++++
+ 3 files changed, 112 insertions(+), 1 deletion(-)
+
+diff --git a/src/backend/optimizer/plan/createplan.c b/src/backend/optimizer/plan/createplan.c
+index de6a183da79..c3e920cc2df 100644
+--- a/src/backend/optimizer/plan/createplan.c
++++ b/src/backend/optimizer/plan/createplan.c
+@@ -6241,7 +6241,25 @@ prepare_sort_from_pathkeys(Plan *lefttree, List *pathkeys,
+ 				em = find_ec_member_matching_expr(ec, tle->expr, relids);
+ 				if (em)
+ 				{
+-					/* found expr already in tlist */
++					/*
++					 * Verify that this EM's datatype actually has the
++					 * required same-type sort operator in pk_opfamily.
++					 * For broken ECs (ec_broken == true) or otherwise
++					 * partial opfamilies, an EC may contain members whose
++					 * datatype lacks the sort operator we need; picking
++					 * such a member would leave pk_datatype unusable and
++					 * trip the "missing operator" elog below. Skip those
++					 * members and keep looking for a usable one.
++					 */
++					if (!OidIsValid(get_opfamily_member_for_cmptype(pathkey->pk_opfamily,
++																	em->em_datatype,
++																	em->em_datatype,
++																	pathkey->pk_cmptype)))
++					{
++						tle = NULL;
++						continue;
++					}
++					/* found expr already in tlist with usable sort op */
+ 					pk_datatype = em->em_datatype;
+ 					break;
+ 				}
+@@ -6253,8 +6271,47 @@ prepare_sort_from_pathkeys(Plan *lefttree, List *pathkeys,
+ 		{
+ 			/*
+ 			 * No matching tlist item; look for a computable expression.
++			 * As above, we must require that the chosen member's datatype
++			 * has the needed same-type sort operator in pk_opfamily;
++			 * otherwise this pathkey is unsortable for this subplan.
+ 			 */
+ 			em = find_computable_ec_member(NULL, ec, tlist, relids, false);
++			if (em &&
++				!OidIsValid(get_opfamily_member_for_cmptype(pathkey->pk_opfamily,
++															em->em_datatype,
++															em->em_datatype,
++															pathkey->pk_cmptype)))
++			{
++				/*
++				 * The single candidate returned by find_computable_ec_member
++				 * has a datatype that lacks the required same-type sort
++				 * operator in pk_opfamily. Fall back to a direct scan of
++				 * ec_members for any usable member.
++				 */
++				em = NULL;
++			}
++			if (!em)
++			{
++				EquivalenceMemberIterator it;
++				EquivalenceMember *cand;
++
++				setup_eclass_member_iterator(&it, ec, relids);
++				while ((cand = eclass_member_iterator_next(&it)) != NULL)
++				{
++					if (cand->em_is_const)
++						continue;
++					if (cand->em_is_child &&
++						!bms_is_subset(cand->em_relids, relids))
++						continue;
++					if (!OidIsValid(get_opfamily_member_for_cmptype(pathkey->pk_opfamily,
++																	cand->em_datatype,
++																	cand->em_datatype,
++																	pathkey->pk_cmptype)))
++						continue;
++					em = cand;
++					break;
++				}
++			}
+ 			if (!em)
+ 				elog(ERROR, "could not find pathkey item to sort");
+ 			pk_datatype = em->em_datatype;
+diff --git a/src/test/regress/expected/equivclass.out b/src/test/regress/expected/equivclass.out
+index ad8ab294ff6..31ab7f0219d 100644
+--- a/src/test/regress/expected/equivclass.out
++++ b/src/test/regress/expected/equivclass.out
+@@ -383,6 +383,40 @@ explain (costs off)
+                Index Cond: (ff = '42'::bigint)
+ (13 rows)
+ 
++-- Exercise the partial-opfamily path in prepare_sort_from_pathkeys:
++-- temporarily remove the same-type '<' for int8alias1 from integer_ops
++-- so the planner is forced to choose a pk_datatype for which the btree
++-- family has no same-type sort operator, unless it guards against it.
++alter operator family integer_ops using btree drop
++  operator 1 (int8alias1, int8alias1);
++explain (costs off)
++  select * from ec1,
++    (select ff + 1 as x from
++       (select ff + 2 as ff from ec1
++        union all
++        select ff + 3 as ff from ec1) ss0
++     union all
++     select ff + 4 as x from ec1) as ss1
++  where ss1.x = ec1.f1 and ec1.ff = 42::int8;
++                     QUERY PLAN                      
++-----------------------------------------------------
++ Merge Join
++   Merge Cond: ((((ec1_1.ff + 2) + 1)) = ec1.f1)
++   ->  Merge Append
++         Sort Key: (((ec1_1.ff + 2) + 1))
++         ->  Index Scan using ec1_expr2 on ec1 ec1_1
++         ->  Sort
++               Sort Key: (((ec1_2.ff + 3) + 1))
++               ->  Seq Scan on ec1 ec1_2
++         ->  Index Scan using ec1_expr4 on ec1 ec1_3
++   ->  Sort
++         Sort Key: ss1.x
++         ->  Index Scan using ec1_pkey on ec1
++               Index Cond: (ff = '42'::bigint)
++(13 rows)
++
++alter operator family integer_ops using btree add
++  operator 1 < (int8alias1, int8alias1);
+ -- check effects of row-level security
+ set enable_nestloop = on;
+ set enable_mergejoin = off;
+diff --git a/src/test/regress/sql/equivclass.sql b/src/test/regress/sql/equivclass.sql
+index 7fc2159349b..fb3bf6221be 100644
+--- a/src/test/regress/sql/equivclass.sql
++++ b/src/test/regress/sql/equivclass.sql
+@@ -223,6 +223,26 @@ explain (costs off)
+      select ff + 4 as x from ec1) as ss1
+   where ss1.x = ec1.f1 and ec1.ff = 42::int8;
+ 
++-- Exercise the partial-opfamily path in prepare_sort_from_pathkeys:
++-- temporarily remove the same-type '<' for int8alias1 from integer_ops
++-- so the planner is forced to choose a pk_datatype for which the btree
++-- family has no same-type sort operator, unless it guards against it.
++alter operator family integer_ops using btree drop
++  operator 1 (int8alias1, int8alias1);
++
++explain (costs off)
++  select * from ec1,
++    (select ff + 1 as x from
++       (select ff + 2 as ff from ec1
++        union all
++        select ff + 3 as ff from ec1) ss0
++     union all
++     select ff + 4 as x from ec1) as ss1
++  where ss1.x = ec1.f1 and ec1.ff = 42::int8;
++
++alter operator family integer_ops using btree add
++  operator 1 < (int8alias1, int8alias1);
++
+ -- check effects of row-level security
+ set enable_nestloop = on;
+ set enable_mergejoin = off;
+-- 
+2.53.0
+

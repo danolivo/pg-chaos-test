@@ -1,0 +1,26 @@
+From cf9c514bf287bc55a5734f47c2af33980841f636 Mon Sep 17 00:00:00 2001
+From: "Andrei V. Lepikhov" <lepihov@gmail.com>
+Date: Mon, 13 Apr 2026 09:49:59 +0200
+Subject: [PATCH] All pathkeys are useful
+
+---
+ src/backend/optimizer/path/pathkeys.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/backend/optimizer/path/pathkeys.c b/src/backend/optimizer/path/pathkeys.c
+index 5eb71635d15..5e7063eab2a 100644
+--- a/src/backend/optimizer/path/pathkeys.c
++++ b/src/backend/optimizer/path/pathkeys.c
+@@ -2290,6 +2290,9 @@ truncate_useless_pathkeys(PlannerInfo *root,
+ bool
+ has_useful_pathkeys(PlannerInfo *root, RelOptInfo *rel)
+ {
++#ifdef CHAOS_MODE
++	return true;
++#endif
+ 	if (rel->joininfo != NIL || rel->has_eclass_joins)
+ 		return true;			/* might be able to use pathkeys for merging */
+ 	if (root->query_pathkeys != NIL)
+-- 
+2.53.0
+
