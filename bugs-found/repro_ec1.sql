@@ -1,0 +1,105 @@
+-- Minimal repro for the ec1 union-all subquery plan
+-- Requires custom alias types to match equivclass.sql setup
+
+-- Custom alias types (backed by int8, no new C code needed)
+create type int8alias1;
+create function int8alias1in(cstring) returns int8alias1
+  strict immutable language internal as 'int8in';
+create function int8alias1out(int8alias1) returns cstring
+  strict immutable language internal as 'int8out';
+create type int8alias1 (
+  input = int8alias1in,
+  output = int8alias1out,
+  like = int8
+);
+
+create type int8alias2;
+create function int8alias2in(cstring) returns int8alias2
+  strict immutable language internal as 'int8in';
+create function int8alias2out(int8alias2) returns cstring
+  strict immutable language internal as 'int8out';
+create type int8alias2 (
+  input = int8alias2in,
+  output = int8alias2out,
+  like = int8
+);
+
+create cast (int8 as int8alias1) without function;
+create cast (int8 as int8alias2) without function;
+create cast (int8alias1 as int8) without function;
+create cast (int8alias2 as int8) without function;
+
+create function int8alias1eq(int8alias1, int8alias1) returns bool
+  strict immutable language internal as 'int8eq';
+create operator = (
+  procedure = int8alias1eq,
+  leftarg = int8alias1, rightarg = int8alias1,
+  commutator = =,
+  restrict = eqsel, join = eqjoinsel,
+  merges
+);
+alter operator family integer_ops using btree add
+  operator 3 = (int8alias1, int8alias1);
+
+create function int8alias1eq(int8, int8alias1) returns bool
+  strict immutable language internal as 'int8eq';
+create operator = (
+  procedure = int8alias1eq,
+  leftarg = int8, rightarg = int8alias1,
+  restrict = eqsel, join = eqjoinsel,
+  merges
+);
+alter operator family integer_ops using btree add
+  operator 3 = (int8, int8alias1);
+
+create function int8alias1eq(int8alias1, int8alias2) returns bool
+  strict immutable language internal as 'int8eq';
+create operator = (
+  procedure = int8alias1eq,
+  leftarg = int8alias1, rightarg = int8alias2,
+  restrict = eqsel, join = eqjoinsel,
+  merges
+);
+alter operator family integer_ops using btree add
+  operator 3 = (int8alias1, int8alias2);
+
+create function int8alias1cmp(int8, int8alias1) returns int
+  strict immutable language internal as 'btint8cmp';
+alter operator family integer_ops using btree add
+  function 1 int8alias1cmp (int8, int8alias1);
+
+-- Table and indexes needed by the query
+create table ec1 (ff int8 primary key, f1 int8alias1, f2 int8alias2);
+
+create unique index ec1_expr1 on ec1((ff + 1));
+create unique index ec1_expr2 on ec1((ff + 2 + 1));
+create unique index ec1_expr3 on ec1((ff + 3 + 1));
+create unique index ec1_expr4 on ec1((ff + 4));
+
+SET enable_hashjoin = off;
+SET enable_nestloop = off;
+SET enable_mergejoin = on;
+
+-- Nudge sort/append choices
+SET enable_incremental_sort = off;
+SET enable_partitionwise_join = on;
+SET enable_partitionwise_aggregate = on;
+
+-- Collapse limits so join ordering is simpler / more deterministic
+SET join_collapse_limit = 1;
+SET from_collapse_limit = 1;
+
+-- Try also:
+SET geqo = off;
+
+explain (costs off)
+  select * from ec1,
+    (select ff + 1 as x from
+       (select ff + 2 as ff from ec1
+        union all
+        select ff + 3 as ff from ec1) ss0
+     union all
+     select ff + 4 as x from ec1) as ss1
+  where ss1.x = ec1.f1 and ec1.ff = 42::int8;
+
+-- ERROR:  missing operator 1(16386,16386) in opfamily 1976
