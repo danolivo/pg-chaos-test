@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 40da17f575de90b5fc72a01892a8101775cece50 Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
 Date: Sun, 12 Apr 2026 12:00:00 +0200
-Subject: [PATCH 6/6] Chaos mode: add missing pathkey Vars to tlist in
+Subject: [PATCH 7/9] Chaos mode: add missing pathkey Vars to tlist in
  prepare_sort_from_pathkeys
 
 In chaos mode, truncate_useless_pathkeys preserves pathkeys that the
@@ -23,7 +23,7 @@ Must be applied after patches 0001-0006.
  1 file changed, 52 insertions(+)
 
 diff --git a/src/backend/optimizer/plan/createplan.c b/src/backend/optimizer/plan/createplan.c
-index de6a183da79..9a7c90dd87b 100644
+index 51e70bed16b..d36152d3469 100644
 --- a/src/backend/optimizer/plan/createplan.c
 +++ b/src/backend/optimizer/plan/createplan.c
 @@ -6255,6 +6255,58 @@ prepare_sort_from_pathkeys(Plan *lefttree, List *pathkeys,
@@ -85,5 +85,6 @@ index de6a183da79..9a7c90dd87b 100644
  			if (!em)
  				elog(ERROR, "could not find pathkey item to sort");
  			pk_datatype = em->em_datatype;
---
+-- 
 2.51.0
+

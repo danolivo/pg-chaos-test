@@ -1,8 +1,17 @@
+From 45b7ab1fd41f706fb0bb7a570eba5ed8b59eea47 Mon Sep 17 00:00:00 2001
+From: "Andrei V. Lepikhov" <lepihov@gmail.com>
+Date: Mon, 13 Apr 2026 10:11:54 +0200
+Subject: [PATCH 9/9] Pathkeys comment
+
+---
+ src/backend/optimizer/path/pathkeys.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
 diff --git a/src/backend/optimizer/path/pathkeys.c b/src/backend/optimizer/path/pathkeys.c
-index 5eb71635d15..15191bf4601 100644
+index bf582b0af76..3abba0b88c2 100644
 --- a/src/backend/optimizer/path/pathkeys.c
 +++ b/src/backend/optimizer/path/pathkeys.c
-@@ -1290,6 +1290,16 @@ find_var_for_subquery_tle(RelOptInfo *rel, TargetEntry *tle)
+@@ -1291,6 +1291,16 @@ find_var_for_subquery_tle(RelOptInfo *rel, TargetEntry *tle)
   * 'outer_pathkeys' is the list of the current outer path's path keys
   *
   * Returns the list of new path keys.
@@ -19,7 +28,7 @@ index 5eb71635d15..15191bf4601 100644
   */
  List *
  build_join_pathkeys(PlannerInfo *root,
-@@ -2195,6 +2205,13 @@ count_common_leading_pathkeys_unordered(List *keys1, List *keys2)
+@@ -2196,6 +2206,13 @@ count_common_leading_pathkeys_unordered(List *keys1, List *keys2)
   *		Shorten the given PathKey List to just the useful PathKeys.  If all
   *		PathKeys are useful, return the input List, otherwise return a new
   *		List containing only the useful PathKeys.
@@ -33,3 +42,6 @@ index 5eb71635d15..15191bf4601 100644
   */
  List *
  truncate_useless_pathkeys(PlannerInfo *root,
+-- 
+2.51.0
+

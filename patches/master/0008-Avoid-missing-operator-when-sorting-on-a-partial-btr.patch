@@ -1,7 +1,7 @@
-From 9f0eeffffffa52b5d062982ec8aec6b5aad3d772 Mon Sep 17 00:00:00 2001
+From 2986ce8530bdc3fe777cb02788d0f8225534145f Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
-Date: Mon, 13 Apr 2026 09:42:35 +0200
-Subject: [PATCH] Avoid "missing operator" when sorting on a partial btree
+Date: Mon, 13 Apr 2026 10:10:28 +0200
+Subject: [PATCH 8/9] Avoid "missing operator" when sorting on a partial btree
  opfamily
 
 prepare_sort_from_pathkeys() assumed that every EquivalenceMember in a
@@ -26,7 +26,7 @@ UNION-ALL merge-join reproducer in equivclass.sql.
  3 files changed, 112 insertions(+), 1 deletion(-)
 
 diff --git a/src/backend/optimizer/plan/createplan.c b/src/backend/optimizer/plan/createplan.c
-index de6a183da79..c3e920cc2df 100644
+index d36152d3469..082ce38ff30 100644
 --- a/src/backend/optimizer/plan/createplan.c
 +++ b/src/backend/optimizer/plan/createplan.c
 @@ -6241,7 +6241,25 @@ prepare_sort_from_pathkeys(Plan *lefttree, List *pathkeys,
@@ -101,9 +101,9 @@ index de6a183da79..c3e920cc2df 100644
 +					break;
 +				}
 +			}
+ #ifdef CHAOS_MODE
  			if (!em)
- 				elog(ERROR, "could not find pathkey item to sort");
- 			pk_datatype = em->em_datatype;
+ 			{
 diff --git a/src/test/regress/expected/equivclass.out b/src/test/regress/expected/equivclass.out
 index ad8ab294ff6..31ab7f0219d 100644
 --- a/src/test/regress/expected/equivclass.out
@@ -181,5 +181,5 @@ index 7fc2159349b..fb3bf6221be 100644
  set enable_nestloop = on;
  set enable_mergejoin = off;
 -- 
-2.53.0
+2.51.0
 

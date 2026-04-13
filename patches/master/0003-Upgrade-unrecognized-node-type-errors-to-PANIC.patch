@@ -1,3 +1,48 @@
+From 1e0487139623b1315a1e108c5ef4ff6c74c9c3d3 Mon Sep 17 00:00:00 2001
+From: "Andrei V. Lepikhov" <lepihov@gmail.com>
+Date: Mon, 13 Apr 2026 10:04:36 +0200
+Subject: [PATCH 3/9] Upgrade unrecognized node type errors to PANIC
+
+---
+ src/backend/commands/define.c             |  6 +++---
+ src/backend/commands/tablecmds.c          |  2 +-
+ src/backend/commands/typecmds.c           |  4 ++--
+ src/backend/executor/execAmi.c            |  4 ++--
+ src/backend/executor/execAsync.c          |  8 ++++----
+ src/backend/executor/execExpr.c           |  2 +-
+ src/backend/executor/execProcnode.c       |  6 +++---
+ src/backend/executor/execSRF.c            |  2 +-
+ src/backend/nodes/copyfuncs.c             |  4 ++--
+ src/backend/nodes/equalfuncs.c            |  2 +-
+ src/backend/nodes/nodeFuncs.c             | 12 ++++++------
+ src/backend/nodes/queryjumblefuncs.c      |  2 +-
+ src/backend/nodes/read.c                  |  2 +-
+ src/backend/nodes/readfuncs.c             |  2 +-
+ src/backend/optimizer/path/allpaths.c     |  4 ++--
+ src/backend/optimizer/path/costsize.c     |  4 ++--
+ src/backend/optimizer/path/indxpath.c     |  2 +-
+ src/backend/optimizer/plan/createplan.c   | 10 +++++-----
+ src/backend/optimizer/plan/initsplan.c    | 10 +++++-----
+ src/backend/optimizer/plan/planner.c      |  2 +-
+ src/backend/optimizer/plan/setrefs.c      |  2 +-
+ src/backend/optimizer/plan/subselect.c    |  2 +-
+ src/backend/optimizer/prep/prepjointree.c | 24 +++++++++++------------
+ src/backend/optimizer/prep/prepunion.c    |  2 +-
+ src/backend/optimizer/util/clauses.c      |  2 +-
+ src/backend/optimizer/util/placeholder.c  |  2 +-
+ src/backend/parser/parse_clause.c         |  4 ++--
+ src/backend/parser/parse_expr.c           |  2 +-
+ src/backend/parser/parse_node.c           |  2 +-
+ src/backend/parser/parse_relation.c       |  4 ++--
+ src/backend/parser/parse_utilcmd.c        |  8 ++++----
+ src/backend/rewrite/rewriteHandler.c      |  2 +-
+ src/backend/tcop/pquery.c                 |  4 ++--
+ src/backend/tcop/utility.c                |  4 ++--
+ src/backend/utils/adt/oid.c               |  2 +-
+ src/backend/utils/adt/ruleutils.c         | 16 +++++++--------
+ src/backend/utils/misc/guc_funcs.c        |  4 ++--
+ 37 files changed, 88 insertions(+), 88 deletions(-)
+
 diff --git a/src/backend/commands/define.c b/src/backend/commands/define.c
 index 4172cc9bacb..0b2c30b75b1 100644
 --- a/src/backend/commands/define.c
@@ -360,10 +405,10 @@ index 1c575e56ff6..515dbd4191d 100644
  	}
  }
 diff --git a/src/backend/optimizer/path/indxpath.c b/src/backend/optimizer/path/indxpath.c
-index 67d9dc35f44..6aa871a3508 100644
+index 430e06dcaaa..956d8895e52 100644
 --- a/src/backend/optimizer/path/indxpath.c
 +++ b/src/backend/optimizer/path/indxpath.c
-@@ -2187,7 +2187,7 @@ find_indexpath_quals(Path *bitmapqual, List **quals, List **preds)
+@@ -2186,7 +2186,7 @@ find_indexpath_quals(Path *bitmapqual, List **quals, List **preds)
  		*preds = list_concat(*preds, ipath->indexinfo->indpred);
  	}
  	else
@@ -373,7 +418,7 @@ index 67d9dc35f44..6aa871a3508 100644
  
  
 diff --git a/src/backend/optimizer/plan/createplan.c b/src/backend/optimizer/plan/createplan.c
-index c7bc41c30d7..7dafaebb8e5 100644
+index de6a183da79..51e70bed16b 100644
 --- a/src/backend/optimizer/plan/createplan.c
 +++ b/src/backend/optimizer/plan/createplan.c
 @@ -534,7 +534,7 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
@@ -634,7 +679,7 @@ index d1f022c5bfd..e0c4cc28b23 100644
  		*pTargetList = NIL;
  		rel = NULL;				/* keep compiler quiet */
 diff --git a/src/backend/optimizer/util/clauses.c b/src/backend/optimizer/util/clauses.c
-index 9fb266d089d..9ac69776211 100644
+index cd4e2e86c6d..4ab3a5ad2f3 100644
 --- a/src/backend/optimizer/util/clauses.c
 +++ b/src/backend/optimizer/util/clauses.c
 @@ -2248,7 +2248,7 @@ find_subquery_safe_quals(Node *jtnode, List **safe_quals)
@@ -647,10 +692,10 @@ index 9fb266d089d..9ac69776211 100644
  }
  
 diff --git a/src/backend/optimizer/util/placeholder.c b/src/backend/optimizer/util/placeholder.c
-index e1706363c88..47506605aa9 100644
+index dd9b11885af..aa8fb22d7db 100644
 --- a/src/backend/optimizer/util/placeholder.c
 +++ b/src/backend/optimizer/util/placeholder.c
-@@ -244,7 +244,7 @@ find_placeholders_recurse(PlannerInfo *root, Node *jtnode)
+@@ -246,7 +246,7 @@ find_placeholders_recurse(PlannerInfo *root, Node *jtnode)
  		find_placeholders_in_expr(root, j->quals);
  	}
  	else
@@ -840,7 +885,7 @@ index a3419728971..630098f74f8 100644
  	return InvalidOid;			/* keep compiler quiet */
  }
 diff --git a/src/backend/utils/adt/ruleutils.c b/src/backend/utils/adt/ruleutils.c
-index 35083fcc733..c75b397ef9e 100644
+index 090e8cc28c1..4d5856f7ff9 100644
 --- a/src/backend/utils/adt/ruleutils.c
 +++ b/src/backend/utils/adt/ruleutils.c
 @@ -4547,7 +4547,7 @@ has_dangerous_join_using(deparse_namespace *dpns, Node *jtnode)
@@ -905,7 +950,7 @@ index 35083fcc733..c75b397ef9e 100644
  			break;
  	}
  }
-@@ -13263,7 +13263,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
+@@ -13262,7 +13262,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
  		}
  	}
  	else
@@ -936,3 +981,6 @@ index e2c2919484e..3bb90d90906 100644
  					 (int) nodeTag(&con->val));
  				break;
  		}
+-- 
+2.51.0
+

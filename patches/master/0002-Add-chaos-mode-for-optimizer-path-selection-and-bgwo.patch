@@ -1,7 +1,7 @@
-From 22e14b72c975a4ba1d404c7bdb9da183829eb067 Mon Sep 17 00:00:00 2001
+From 502ddab0615c656b531fde73003cf525e60c18ca Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
 Date: Wed, 8 Apr 2026 09:08:28 +0200
-Subject: [PATCH 2/2] Add chaos mode for optimizer path selection and bgworker
+Subject: [PATCH 2/9] Add chaos mode for optimizer path selection and bgworker
  timing
 
 Introduce a compile-time CHAOS_MODE that randomizes planner path

@@ -1,15 +1,15 @@
-From 0f895b8db2d9f244d0e2bfc7b2fe17477cff3432 Mon Sep 17 00:00:00 2001
+From 6137ee6c91d2d4540821c9e3220614541b7af806 Mon Sep 17 00:00:00 2001
 From: "Andrei V. Lepikhov" <lepihov@gmail.com>
 Date: Sat, 11 Apr 2026 11:54:04 +0200
-Subject: [PATCH 3/3] =?UTF-8?q?Fix=20use-after-free=20in=20apply=5Fscanjoi?=
+Subject: [PATCH 4/9] =?UTF-8?q?Fix=20use-after-free=20in=20apply=5Fscanjoi?=
  =?UTF-8?q?n=5Ftarget=5Fto=5Fpaths=20for=20partitioned=20joins=20When=20ap?=
  =?UTF-8?q?ply=5Fscanjoin=5Ftarget=5Fto=5Fpaths=20processes=20a=20partitio?=
  =?UTF-8?q?ned=20join=20rel,=20it=20modifies=20the=20rel's=20Append/MergeA?=
  =?UTF-8?q?ppend=20paths=20in-place=20(stamping=20sortgrouprefs=20or=20wra?=
  =?UTF-8?q?pping=20with=20ProjectionPath),=20then=20recurses=20into=20chil?=
- =?UTF-8?q?d=20partitions.=20=20The=20child-level=20recursion=20calls=20ad?=
- =?UTF-8?q?d=5Fpaths=5Fto=5Fappend=5Frel,=20which=20feeds=20new=20paths=20?=
- =?UTF-8?q?into=20add=5Fpath=20/=20add=5Fpartial=5Fpath=20=E2=80=94=20and?=
+ =?UTF-8?q?d=20partitions.=20The=20child-level=20recursion=20calls=20add?=
+ =?UTF-8?q?=5Fpaths=5Fto=5Fappend=5Frel,=20which=20feeds=20new=20paths=20i?=
+ =?UTF-8?q?nto=20add=5Fpath=20/=20add=5Fpartial=5Fpath=20=E2=80=94=20and?=
  =?UTF-8?q?=20those=20functions=20may=20pfree=20old=20child=20paths=20that?=
  =?UTF-8?q?=20the=20parent's=20already-modified=20Append=20still=20referen?=
  =?UTF-8?q?ces=20through=20its=20subpaths=20list.=20Multi-level=20partitio?=
@@ -19,27 +19,27 @@ Subject: [PATCH 3/3] =?UTF-8?q?Fix=20use-after-free=20in=20apply=5Fscanjoi?=
  =?UTF-8?q?ld=20leaf=20joins)=20so=20that=20the=20grandchild-level=20rebui?=
  =?UTF-8?q?ld=20can=20free=20paths=20the=20grandparent=20still=20points=20?=
  =?UTF-8?q?to.=20In=20normal=20operation=20two=20accidental=20properties?=
- =?UTF-8?q?=20of=20the=20cost=20model=20prevent=20the=20crash.=20=20When?=
- =?UTF-8?q?=20tlist=5Fsame=5Fexprs=20is=20true=20the=20old=20and=20new=20A?=
- =?UTF-8?q?ppend=20paths=20have=20bit-for-bit=20identical=20costs,=20so=20?=
- =?UTF-8?q?add=5Fpath=20always=20keeps=20the=20old=20path=20and=20never=20?=
- =?UTF-8?q?frees=20it.=20=20When=20tlist=5Fsame=5Fexprs=20is=20false,=20ea?=
- =?UTF-8?q?ch=20path=20is=20wrapped=20in=20a=20ProjectionPath;=20pfree=20f?=
- =?UTF-8?q?rees=20only=20the=20wrapper=20struct,=20leaving=20the=20inner?=
- =?UTF-8?q?=20AppendPath=20(and=20its=20subpath=20pointers)=20intact.=20?=
- =?UTF-8?q?=20Chaos=20mode=20defeats=20the=20first=20mechanism=20by=20rand?=
- =?UTF-8?q?omizing=20tie-breaking,=20exposing=20the=20latent=20dangling=20?=
- =?UTF-8?q?pointer.=20Fix=20by=20dropping=20Append/MergeAppend=20paths=20f?=
- =?UTF-8?q?rom=20partitioned=20join=20rels'=20pathlists=20before=20recursi?=
- =?UTF-8?q?ng=20into=20children,=20mirroring=20the=20existing=20treatment?=
- =?UTF-8?q?=20for=20partitioned=20simple=20rels=20(which=20sets=20pathlist?=
- =?UTF-8?q?=20=3D=20NIL).=20=20The=20fix=20is=20more=20surgical=20for=20jo?=
- =?UTF-8?q?in=20rels:=20it=20removes=20only=20Append/MergeAppend=20entries?=
- =?UTF-8?q?,=20preserving=20non-Append=20join=20paths=20(HashJoin,=20NestL?=
- =?UTF-8?q?oop,=20MergeJoin)=20that=20carry=20no=20per-partition=20subpath?=
- =?UTF-8?q?=20pointers.=20add=5Fpaths=5Fto=5Fappend=5Frel=20rebuilds=20equ?=
- =?UTF-8?q?ivalent=20Append=20paths=20from=20the=20updated=20children=20af?=
- =?UTF-8?q?ter=20the=20recursion.?=
+ =?UTF-8?q?=20of=20the=20cost=20model=20prevent=20the=20crash.=20When=20tl?=
+ =?UTF-8?q?ist=5Fsame=5Fexprs=20is=20true=20the=20old=20and=20new=20Append?=
+ =?UTF-8?q?=20paths=20have=20bit-for-bit=20identical=20costs,=20so=20add?=
+ =?UTF-8?q?=5Fpath=20always=20keeps=20the=20old=20path=20and=20never=20fre?=
+ =?UTF-8?q?es=20it.=20When=20tlist=5Fsame=5Fexprs=20is=20false,=20each=20p?=
+ =?UTF-8?q?ath=20is=20wrapped=20in=20a=20ProjectionPath;=20pfree=20frees?=
+ =?UTF-8?q?=20only=20the=20wrapper=20struct,=20leaving=20the=20inner=20App?=
+ =?UTF-8?q?endPath=20(and=20its=20subpath=20pointers)=20intact.=20Chaos=20?=
+ =?UTF-8?q?mode=20defeats=20the=20first=20mechanism=20by=20randomizing=20t?=
+ =?UTF-8?q?ie-breaking,=20exposing=20the=20latent=20dangling=20pointer.=20?=
+ =?UTF-8?q?Fix=20by=20dropping=20Append/MergeAppend=20paths=20from=20parti?=
+ =?UTF-8?q?tioned=20join=20rels'=20pathlists=20before=20recursing=20into?=
+ =?UTF-8?q?=20children,=20mirroring=20the=20existing=20treatment=20for=20p?=
+ =?UTF-8?q?artitioned=20simple=20rels=20(which=20sets=20pathlist=20=3D=20N?=
+ =?UTF-8?q?IL).=20The=20fix=20is=20more=20surgical=20for=20join=20rels:=20?=
+ =?UTF-8?q?it=20removes=20only=20Append/MergeAppend=20entries,=20preservin?=
+ =?UTF-8?q?g=20non-Append=20join=20paths=20(HashJoin,=20NestLoop,=20MergeJ?=
+ =?UTF-8?q?oin)=20that=20carry=20no=20per-partition=20subpath=20pointers.?=
+ =?UTF-8?q?=20add=5Fpaths=5Fto=5Fappend=5Frel=20rebuilds=20equivalent=20Ap?=
+ =?UTF-8?q?pend=20paths=20from=20the=20updated=20children=20after=20the=20?=
+ =?UTF-8?q?recursion.?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -49,7 +49,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 26 insertions(+)
 
 diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
-index 4e5dd987b94..4db41ac7559 100644
+index bfa24987037..e72479fa489 100644
 --- a/src/backend/optimizer/plan/planner.c
 +++ b/src/backend/optimizer/plan/planner.c
 @@ -8054,6 +8054,17 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
