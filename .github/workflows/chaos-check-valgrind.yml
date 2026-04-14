@@ -102,8 +102,8 @@ jobs:
           server_address: smtp.gmail.com
           server_port: 465
           secure: true
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_PASSWORD }}
           subject: "pg-chaos-test (check+valgrind): patch no longer applies to ${{ env.PG_REF }}"
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: GitHub Actions <github-actions@github.com>
@@ -402,8 +402,8 @@ jobs:
           server_address: smtp.gmail.com
           server_port: 465
           secure: true
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_PASSWORD }}
           subject: "pg-chaos-test (check+valgrind): regression failures on ${{ env.PG_REF }}"
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: GitHub Actions <github-actions@github.com>
